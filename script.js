@@ -44,6 +44,14 @@ function setupVideo() {
             e.preventDefault();
         }
     });
+
+    // when video plays, release keyframe
+    video.addEventListener('play', function() {
+        currentKeyframeIndex = -1;   // release keyframe
+        fabricCanvas.clear();        // clear canvas
+        highlightCurrentKeyframe();  // update sidebar UI
+        document.getElementById('intra-selected').textContent = 'None';
+    });
 }
 
 function setupCanvas() {
@@ -83,22 +91,25 @@ function setupCanvas() {
         }
     });
 
-    fabricCanvas.on('object:added', updateJSON);
+    // fabricCanvas.on('object:added', updateJSON);
     fabricCanvas.on('object:removed', updateJSON);
     fabricCanvas.on('object:modified', updateJSON);
 }
 
 // Ensure canvas sizing matches video exactly
+// v2.
 function resizeCanvas() {
-    const video = document.getElementById('mainVideo');
+    const videoElement = document.getElementById('mainVideo');
     const canvas = document.getElementById('annotationCanvas');
-    
-    canvas.width = video.offsetWidth;
-    canvas.height = video.offsetHeight;
-    
+
+    const rect = videoElement.getBoundingClientRect();
+
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+
     fabricCanvas.setDimensions({
-        width: video.offsetWidth,
-        height: video.offsetHeight
+        width: rect.width,
+        height: rect.height
     });
 }
 
@@ -111,28 +122,45 @@ function setupEventListeners() {
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
+        // Create a URL for the video file
         const url = URL.createObjectURL(file);
+        
+        // Set the video's source to the new URL
         video.src = url;
+        
+        // Load the new video
+        video.load();
+
+        // Update video_id and clear old annotations
         annotationData.video_id = file.name.replace(/\.[^/.]+$/, "");
-        clearAllAnnotations();
+        clearAnnotations(); // Use clearAnnotations to avoid confirmation dialog
     }
 }
 
 function setAnnotationMode(mode) {
     currentMode = mode;
-    
-    // Update button states
+
+    // update button states    
     document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(mode + 'Btn').classList.add('active');
-    
-    // Update canvas interaction mode
-    fabricCanvas.selection = mode === 'select';
-    fabricCanvas.skipTargetFind = mode !== 'select';
-    
+
+    const upperCanvasEl = document.querySelector('.upper-canvas');
+
     if (mode === 'select') {
+        fabricCanvas.isDrawingMode = false;
+        fabricCanvas.selection = true;
+        upperCanvasEl.style.setProperty("pointer-events", "none", "important"); // enable video controls
         fabricCanvas.defaultCursor = 'default';
     } else {
-        fabricCanvas.defaultCursor = 'crosshair';
+        if (currentKeyframeIndex >= 0) {
+            fabricCanvas.isDrawingMode = false; 
+            fabricCanvas.selection = false;
+            upperCanvasEl.style.setProperty("pointer-events", "auto", "important"); // enable drawing canvas
+            fabricCanvas.defaultCursor = 'crosshair';
+        } else {
+            alert("select a keyframe first.");
+            setAnnotationMode('select');
+        }
     }
 }
 
@@ -187,15 +215,40 @@ function finishDrawingShape() {
             timestamp: video.currentTime,
             label: prompt('Enter object label:') || 'unlabeled'
         });
-        
+
         fabricCanvas.renderAll();
+
+        if (currentKeyframeIndex >= 0) {
+            const keyframe = annotationData.keyframes[currentKeyframeIndex];
+            keyframe.objects.push({
+                id: activeShape.id,
+                label: activeShape.label,
+                timestamp: activeShape.timestamp,
+                type: 'bounding_box',
+                coordinates: {
+                    x: Math.round(activeShape.left),
+                    y: Math.round(activeShape.top),
+                    width: Math.round(activeShape.width * activeShape.scaleX),
+                    height: Math.round(activeShape.height * activeShape.scaleY)
+                }
+            });
+        }
+
         activeShape = null;
         startPoint = null;
         setAnnotationMode('select');
+        displayConstraints();
+        updateJSON();
     }
 }
 
 function addPointAnnotation(x, y) {
+    if (currentKeyframeIndex < 0) {
+        alert("select a keyframe first.");
+        setAnnotationMode('select');
+        return;
+    }
+
     const point = new fabric.Circle({
         left: x - 5,
         top: y - 5,
@@ -209,9 +262,26 @@ function addPointAnnotation(x, y) {
     });
     
     fabricCanvas.add(point);
+
+    // add to current keyframe.objects
+    const keyframe = annotationData.keyframes[currentKeyframeIndex];
+    keyframe.objects.push({
+        id: point.id,
+        label: point.label,
+        timestamp: point.timestamp,
+        type: 'point',
+        coordinates: {
+            x: Math.round(point.left + point.radius),
+            y: Math.round(point.top + point.radius)
+        }
+    });
+
     isDrawing = false;
     setAnnotationMode('select');
+    displayConstraints();
+    updateJSON();
 }
+
 
 function addKeyframe() {
     const timestamp = video.currentTime;
@@ -324,14 +394,17 @@ function updateTimelineMarkers() {
 }
 
 function seekToKeyframe(index) {
+    currentKeyframeIndex = index;
     const keyframe = annotationData.keyframes[index];
     video.currentTime = keyframe.timestamp;
-    currentKeyframeIndex = index;
+    
+    loadKeyframeAnnotations(keyframe);
+
     highlightCurrentKeyframe();
     highlightTimelineMarker(index);
-    loadKeyframeAnnotations(keyframe);
     displayConstraints();
 }
+
 
 function highlightTimelineMarker(activeIndex) {
     document.querySelectorAll('.keyframe-marker').forEach((marker, index) => {
@@ -363,14 +436,43 @@ function updateKeyframeList() {
         const div = document.createElement('div');
         div.className = 'keyframe-item';
         div.innerHTML = `
-            <strong>Keyframe ${index + 1}</strong><br>
-            Time: ${formatTime(keyframe.timestamp)}<br>
-            Objects: ${keyframe.objects.length}
+            <div class="kf-content">
+                <strong>Keyframe ${index + 1}</strong><br>
+                Time: ${formatTime(keyframe.timestamp)}<br>
+                Objects: ${keyframe.objects.length}
+            </div>
+            <button class="delete-kf-btn" data-index="${index}">❌</button>
         `;
+        div.querySelector('.delete-kf-btn').onclick = (e) => {
+            e.stopPropagation(); // 클릭 시 keyframe seek 방지
+            deleteKeyframe(index);
+        };
         div.onclick = () => seekToKeyframe(index);
         list.appendChild(div);
     });
 }
+
+function deleteKeyframe(index) {
+    if (index < 0 || index >= annotationData.keyframes.length) return;
+
+    const removed = annotationData.keyframes.splice(index, 1)[0];
+
+    if (currentKeyframeIndex === index) {
+        fabricCanvas.clear();
+        currentKeyframeIndex = -1;
+    }
+
+    annotationData.inter_frame_constraints = annotationData.inter_frame_constraints.filter(c =>
+        c.from_keyframe_id !== removed.id && c.to_keyframe_id !== removed.id
+    );
+
+    updateKeyframeList();
+    updateTimelineMarkers();
+    updateKeyframeDropdowns();
+    displayConstraints();
+    updateJSON();
+}
+
 
 function highlightCurrentKeyframe() {
     document.querySelectorAll('.keyframe-item').forEach((item, index) => {
@@ -378,12 +480,14 @@ function highlightCurrentKeyframe() {
     });
 }
 
+let isLoadingKeyframe = false;
+
 function loadKeyframeAnnotations(keyframe) {
+    isLoadingKeyframe = true;   // disable JSON update temporarily
     fabricCanvas.clear();
-    
+
     keyframe.objects.forEach(objData => {
         let obj;
-        
         if (objData.type === 'bounding_box') {
             obj = new fabric.Rect({
                 left: objData.coordinates.x,
@@ -404,7 +508,6 @@ function loadKeyframeAnnotations(keyframe) {
                 strokeWidth: 2
             });
         }
-        
         if (obj) {
             obj.set({
                 id: objData.id,
@@ -414,28 +517,68 @@ function loadKeyframeAnnotations(keyframe) {
             fabricCanvas.add(obj);
         }
     });
+
+    isLoadingKeyframe = false;  // allow JSON update again
 }
 
-function addFrameConstraint() {
-    const input = document.getElementById('frameConstraint');
-    const constraint = input.value.trim();
-    
-    if (!constraint) return;
-    
-    if (currentKeyframeIndex < 0) {
-        alert('Please select a keyframe first by clicking on one in the timeline or sidebar.');
-        return;
-    }
 
-    
+function addObjectConstraint(objectId) {
     const keyframe = annotationData.keyframes[currentKeyframeIndex];
-    if (!keyframe.constraints.frame_level.includes(constraint)) {
-        keyframe.constraints.frame_level.push(constraint);
+    const obj = keyframe.objects.find(o => o.id === objectId);
+    if (!obj) return;
+
+    if (!obj.constraints) obj.constraints = [];
+    const input = document.getElementById(`objConstraint_${objectId}`);
+    const constraint = input.value.trim();
+    if (constraint && !obj.constraints.includes(constraint)) {
+        obj.constraints.push(constraint);
         input.value = '';
         displayConstraints();
         updateJSON();
     }
 }
+
+function deleteObjectConstraint(objectId, idx) {
+    const keyframe = annotationData.keyframes[currentKeyframeIndex];
+    const obj = keyframe.objects.find(o => o.id === objectId);
+    if (!obj) return;
+
+    obj.constraints.splice(idx, 1);
+    displayConstraints();
+    updateJSON();
+}
+
+function addFrameConstraint() {
+    if (currentKeyframeIndex < 0) {
+        alert('Please select a keyframe first.');
+        return;
+    }
+
+    const input = document.getElementById('frameConstraintInput');
+    if (!input) return;
+
+    const constraint = input.value.trim();
+    if (!constraint) return;
+
+    const keyframe = annotationData.keyframes[currentKeyframeIndex];
+    if (!keyframe.constraints) keyframe.constraints = { frame_level: [], inter_frame: [] };
+
+    if (!keyframe.constraints.frame_level.includes(constraint)) {
+        keyframe.constraints.frame_level.push(constraint);
+        input.value = ''; 
+        displayConstraints(); 
+        updateJSON();
+    }
+}
+
+
+function deleteFrameConstraint(idx) {
+    const keyframe = annotationData.keyframes[currentKeyframeIndex];
+    keyframe.constraints.frame_level.splice(idx, 1);
+    displayConstraints();
+    updateJSON();
+}
+
 
 function addInterFrameConstraint() {
     const input = document.getElementById('interFrameConstraint');
@@ -490,46 +633,96 @@ function addInterFrameConstraint() {
     }
 }
 
+function deleteInterFrameConstraint(idx) {
+    if (idx < 0 || idx >= annotationData.inter_frame_constraints.length) return;
 
+    annotationData.inter_frame_constraints.splice(idx, 1);
+
+    updateInterFrameUI();
+    updateJSON();
+}
+
+
+// v3.
 function displayConstraints() {
     const frameDiv = document.getElementById('frameConstraints');
-    const interDiv = document.getElementById('interFrameConstraints');
-    const seletedKF = document.getElementById('intra-selected');
-    
-    // Display frame-level constraints for current keyframe
+    const selectedKF = document.getElementById('intra-selected');
+
     if (currentKeyframeIndex >= 0) {
-        console.log("Here");
         const keyframe = annotationData.keyframes[currentKeyframeIndex];
-        frameDiv.innerHTML = keyframe.constraints.frame_level.map(c => 
-            `<span style="display: inline-block; background: #667eea; color: white; padding: 4px 8px; margin: 2px; border-radius: 4px; font-size: 0.8em;">${c}</span>`
+        selectedKF.textContent = `Keyframe ${currentKeyframeIndex + 1}`;
+
+        let html = "";
+
+        // 🔹 Keyframe-level constraints
+        html += `<h4>Keyframe Constraints</h4>`;
+        html += keyframe.constraints.frame_level.map((c, idx) =>
+            `<span class="constraint-badge">
+                ${c}
+                <button class="delete-constraint-btn" onclick="deleteFrameConstraint(${idx})">x</button>
+            </span>`
         ).join('');
-        seletedKF.textContent = `Keyframe ${currentKeyframeIndex+1}`
+        html += `
+            <div style="margin-top:6px;">
+                <input type="text" id="frameConstraintInput"
+                    placeholder="e.g., good_lighting" class="constraint-input">
+                <button class="btn btn-primary" type="button"
+                        onclick="addFrameConstraint()" style="margin-top:6px;">Add</button>
+            </div>
+            `;
+
+
+        // Object-level constraints
+        html += `<h4 style="margin-top:15px;">Object Constraints</h4>`;
+        if (keyframe.objects.length === 0) {
+            html += `<em>No objects in this keyframe</em>`;
+        } else {
+            keyframe.objects.forEach(obj => {
+                if (!obj.constraints) obj.constraints = []; 
+                html += `
+                    <div style="margin:6px 0; padding:6px; border:1px solid #ccc; border-radius:6px;">
+                        <strong>${obj.label} (${obj.type})</strong><br>
+                        ${obj.constraints.length > 0
+                            ? obj.constraints.map((c, idx) => `
+                                <span class="constraint-badge">
+                                  ${c}
+                                  <button class="delete-constraint-btn" onclick="deleteObjectConstraint('${obj.id}', ${idx})">x</button>
+                                </span>
+                              `).join('')
+                            : '<em>No constraints</em>'}
+                        <div style="margin-top:4px;">
+                            <input type="text" id="objConstraint_${obj.id}" placeholder="e.g., color=red, velocity>5" class="constraint-input">
+                            <button class="btn btn-primary" onclick="addObjectConstraint('${obj.id}')" style="margin-top:4px;">Add</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        frameDiv.innerHTML = html;
     } else {
-        frameDiv.innerHTML = '<em style="color: #999;">Select a keyframe to view constraints</em>';
+        selectedKF.textContent = 'None';
+        frameDiv.innerHTML = '<em style="color:#999;">Select a keyframe to view constraints</em>';
     }
-    
-    // Display inter-frame constraints
-    interDiv.innerHTML = annotationData.inter_frame_constraints.map(c => {
-        const fromIndex = annotationData.keyframes.findIndex(kf => kf.id === c.from_keyframe_id) + 1;
-        const toIndex = annotationData.keyframes.findIndex(kf => kf.id === c.to_keyframe_id) + 1;
-        return `<div style="background: #f8f9fa; padding: 8px; margin: 4px 0; border-radius: 6px; border-left: 3px solid #e74c3c;">
-            <strong>${c.constraint_type}</strong><br>
-            <small>KF${fromIndex} → KF${toIndex}</small>
-        </div>`;
-    }).join('');
 }
 
 function updateJSON() {
-    // Update current keyframe with canvas objects
+    if (isLoadingKeyframe) return;
+
     if (currentKeyframeIndex >= 0) {
         const keyframe = annotationData.keyframes[currentKeyframeIndex];
+
+        // update current canvas objects with existing object constraints
         keyframe.objects = fabricCanvas.getObjects().map(obj => {
+            const existingObj = keyframe.objects.find(o => o.id === obj.id);
+
             const objData = {
                 id: obj.id || 'obj_' + Date.now(),
                 label: obj.label || 'unlabeled',
-                timestamp: obj.timestamp || video.currentTime
+                timestamp: keyframe.timestamp,
+                constraints: existingObj?.constraints || []
             };
-            
+
             if (obj.type === 'rect') {
                 objData.type = 'bounding_box';
                 objData.coordinates = {
@@ -545,13 +738,18 @@ function updateJSON() {
                     y: Math.round(obj.top + obj.radius)
                 };
             }
-            
+
             return objData;
         });
     }
-    
-    document.getElementById('jsonOutput').textContent = JSON.stringify(annotationData, null, 2);
+
+    document.getElementById('jsonOutput').textContent =
+        JSON.stringify(annotationData, null, 2);
 }
+
+
+
+
 
 function clearAnnotations() {
     fabricCanvas.clear();
