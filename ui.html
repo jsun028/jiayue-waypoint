@@ -20,7 +20,7 @@
         <div class="main-layout">
             <div class="video-section">
                 <div class="video-container">
-                    <video id="mainVideo" controls>
+                    <video id="mainVideo" controls="">
                         <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
                         Your browser does not support the video tag.
                     </video>
@@ -52,13 +52,22 @@
                     <div id="keyframeList" class="keyframe-list"></div>
                 </div>
 
-                <div class="panel">
+                <!-- <div class="panel">
                     <h3>🏷️ Frame Constraints</h3>
                     <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
                         Selected: <span id="intra-selected">None</span>
                     </div>
                     <input type="text" class="constraint-input" placeholder="e.g., object_visible, good_lighting" id="frameConstraint">
                     <button class="btn btn-primary" onclick="addFrameConstraint()" style="width: 100%; margin-top: 10px;">Add Constraint</button>
+                    <div id="frameConstraints"></div>
+                </div> -->
+                <div class="panel">
+                    <h3>🏷️ Frame Constraints</h3>
+                    <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+                        Selected: <span id="intra-selected">None</span>
+                    </div>
+                
+                    <!-- 🔹 JS에서 여기에 keyframe-level + object-level constraint UI를 동적으로 채움 -->
                     <div id="frameConstraints"></div>
                 </div>
 
