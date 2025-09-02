@@ -455,21 +455,17 @@ function updateKeyframeList() {
 function deleteKeyframe(index) {
     if (index < 0 || index >= annotationData.keyframes.length) return;
 
-    // 지울 keyframe
     const removed = annotationData.keyframes.splice(index, 1)[0];
 
-    // 만약 현재 선택된 keyframe이면 초기화
     if (currentKeyframeIndex === index) {
         fabricCanvas.clear();
         currentKeyframeIndex = -1;
     }
 
-    // inter-frame constraints에서도 제거
     annotationData.inter_frame_constraints = annotationData.inter_frame_constraints.filter(c =>
         c.from_keyframe_id !== removed.id && c.to_keyframe_id !== removed.id
     );
 
-    // UI 갱신
     updateKeyframeList();
     updateTimelineMarkers();
     updateKeyframeDropdowns();
@@ -676,13 +672,13 @@ function displayConstraints() {
             `;
 
 
-        // 🔹 Object-level constraints
+        // Object-level constraints
         html += `<h4 style="margin-top:15px;">Object Constraints</h4>`;
         if (keyframe.objects.length === 0) {
             html += `<em>No objects in this keyframe</em>`;
         } else {
             keyframe.objects.forEach(obj => {
-                if (!obj.constraints) obj.constraints = []; // 항상 초기화
+                if (!obj.constraints) obj.constraints = []; 
                 html += `
                     <div style="margin:6px 0; padding:6px; border:1px solid #ccc; border-radius:6px;">
                         <strong>${obj.label} (${obj.type})</strong><br>
@@ -716,16 +712,15 @@ function updateJSON() {
     if (currentKeyframeIndex >= 0) {
         const keyframe = annotationData.keyframes[currentKeyframeIndex];
 
-        // 현재 캔버스 객체들 → 기존 object constraints를 유지하며 업데이트
+        // update current canvas objects with existing object constraints
         keyframe.objects = fabricCanvas.getObjects().map(obj => {
-            // 기존 JSON에서 같은 id의 object 찾기
             const existingObj = keyframe.objects.find(o => o.id === obj.id);
 
             const objData = {
                 id: obj.id || 'obj_' + Date.now(),
                 label: obj.label || 'unlabeled',
                 timestamp: keyframe.timestamp,
-                constraints: existingObj?.constraints || [] // 🔹 기존 constraint 보존
+                constraints: existingObj?.constraints || []
             };
 
             if (obj.type === 'rect') {

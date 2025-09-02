@@ -232,31 +232,6 @@ h1 {
     box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
 }
 
-.constraint-badge {
-    display: inline-block;
-    background: #667eea;
-    color: white;
-    padding: 4px 8px;
-    border-radius: 6px;
-    margin: 3px;
-    font-size: 0.85em;
-    position: relative;
-}
-
-.constraint-badge .delete-constraint-btn {
-    margin-left: 6px;
-    background: transparent;
-    color: white;
-    border: none;
-    cursor: pointer;
-    font-size: 0.8em;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-}
-
-.constraint-badge:hover .delete-constraint-btn {
-    opacity: 1;
-}
 
 .file-upload {
     margin-bottom: 20px;
@@ -311,7 +286,6 @@ h1 {
     border-left: 4px solid #667eea;
 }
 
-/* 기본은 숨김 */
 .delete-kf-btn {
     position: absolute;
     top: 4px;
@@ -329,7 +303,6 @@ h1 {
     transition: opacity 0.2s ease;
 }
 
-/* keyframe-item 위에 마우스를 올리면 버튼 보임 */
 .keyframe-item:hover .delete-kf-btn {
     opacity: 1;
     visibility: visible;
