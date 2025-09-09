@@ -30,54 +30,28 @@ Put your annotations in a file, e.g. examples/example_annotations.json.
 
 Run the transformer:
 ```bash
-python -m kfql_transform.main \
-  --input examples/example_annotations.json \
+python -m main \
+  --input input/<input>.json \
   --provider openai \
-  --openai-model gpt-5 \
+  --gpt-model gpt-5 \
   --temperature 0.2
 ```
 
-
-You’ll see two sections:
-
-- # ==== RAW MODEL OUTPUT ====
-- # ==== EXTRACTED PYTHON QUERY ==== ← paste this into your KeyframeQL runtime.
-
 Switch to Gemini:
 ```bash
-python -m kfql_transform.main \
-  --input examples/example_annotations.json \
+python -m main \
+  --input input/<input>.json \
   --provider gemini \
-  --gemini-model gemini-1.5-pro
+  --gpt-model gemini-1.5-pro
 ```
 
 Useful flags:
 ```bash
 --no-examples       # drop few-shot to test generalization
---no-query-dsl     # drop DSL query DSL (not recommended)
---fast-vel 3.0      # change "driving fast" threshold for velocity_above()
+--no-query-dsl      # drop DSL query DSL (not recommended)
+--fast-vel 3.0      # domain-specific default parameters; change "driving fast" threshold for velocity_above()
 ``` 
 
-
-## Quick start (Python API)
-
-```python
-from kfql_transform.config import LLMConfig, TransformConfig
-from kfql_transform.pipeline import TransformPipeline
-
-annotations_json = open("examples/example_annotations.json", "r", encoding="utf-8").read()
-
-llm_cfg = LLMConfig(provider="openai", openai_model="gpt-5", temperature=0.2)
-xform_cfg = TransformConfig(default_fast_velocity=2.0)
-
-pipeline = TransformPipeline(llm_cfg, xform_cfg)
-result = pipeline.run(annotations_json)
-
-print("RAW:\n", result.raw_text[:400], "...\n")
-print("CODE:\n", result.code)
-```
-
-`result.code` contains only the Python KeyframeQL query (single fenced block content).
 
 ## Input JSON format
 
@@ -107,15 +81,31 @@ The pipeline returns only a Python code block implementing a KeyframeQL query:
 
 You paste the code into your KeyframeQL environment and execute it.
 
-## Prompting pipeline
+## Prompting
 
-The pipeline constructs a single string prompt composed of:
+The prompting pipeline constructs a single string prompt composed of:
+
+```bash
+You are generating a Python KeyframeQL query that uses this Query DSL.
+
+# === KeyframeQL Query DSL ===
+<...>
+# === EXAMPLE: JSON annotations 
+# === EXAMPLE: Target Query ===
+<...>
+# === USER COMMAND === 
+“Transform the JSON annotations into a KeyframeQL query.”
+# === INPUT JSON ANNOTATIONS === 
+<input/Euro_NCAP-CCFtap_normal.json>
+# === REQUIRED OUTPUT FORMAT === : 
+... 
+```
 
 ### Command
 
 A concise instruction, default:
 
-> “Transform the JSON annotations into a single KeyframeQL query.”
+> “Transform the JSON annotations into a KeyframeQL query.”
 
 (Override via TransformConfig.command.)
 
@@ -123,15 +113,7 @@ A concise instruction, default:
 
 A compact, high-signal summary of the KeyframeQL DSL and UDFs the model should use (e.g., heading_diff_to, velocity_above, interframe(..., comparators=[...])). It also includes mapping rules and output constraints (single Python fence).
 
-### Examples (few-shot)
-
-A paired example of JSON → Query to ground the model’s formatting and conventions (you can extend/rotate these).
-
-### Provider call
-
-We send the built prompt to your chosen provider and extract the fenced Python block.
-
-## Mapping rules
+#### Mapping rules
 
 These rules are embedded in the query DSL and applied by the model:
 
@@ -145,3 +127,11 @@ These rules are embedded in the query DSL and applied by the model:
 | “at the intersection”                      | By default: comment. If you provide a UDF (e.g., `maps.is_intersection(...)`) or ROI (`within(BBox(...))`), we can wire it into the prompt/rules. |
 
 Time shift: computed as the difference between to_timestamp and from_timestamp from the first inter-frame constraint pair. (You can change the strategy—e.g., median over all pairs.)
+
+### Examples (few-shot)
+
+A paired example of JSON → Query to ground the model’s formatting and conventions (you can extend/rotate these).
+
+### Provider call
+
+We send the built prompt to your chosen provider and extract the fenced Python block.

@@ -1,5 +1,4 @@
-
-import argparse, pathlib
+import argparse, pathlib, time
 from config import LLMConfig, TransformConfig
 from pipeline import TransformPipeline
 
@@ -51,9 +50,14 @@ def main(argv=None):
         default_fast_velocity=args.fast_vel,
     )
 
+    # Evaluate runtime
+    start_time = time.perf_counter()
+
     pipeline = TransformPipeline(llm_cfg, xform_cfg)
     res = pipeline.run(annotations)
-
+    end_time = time.perf_counter()
+    print(f"Runtime: {end_time - start_time:.2f} seconds")
+        
     # print("# ==== RAW MODEL OUTPUT ====\n") # for debugging
     # print(res.raw_text)
     print("\n\n# ==== EXTRACTED PYTHON QUERY ====\n")
