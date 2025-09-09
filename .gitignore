@@ -1,0 +1,53 @@
+# === OS / Editor ===
+.DS_Store
+*.swp
+*.swo
+*.log
+*.tmp
+.vscode/
+.idea/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+*.manifest
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Byte-compiled / caches
+*.coverage
+*.pytest_cache/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.pyre/
+
+# === Web / Frontend ===
+node_modules/
+dist/
+build/
+.npm/
+.cache/
+coverage/
+
+# === Project specific ===
+# Input / output data
+videos/
+*.mp4
+*.avi
+*.mov
+
+# Local configs (keep only template/sample configs in git)
+config.local.py
+.env
+.env.*
+
