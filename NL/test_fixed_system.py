@@ -5,10 +5,10 @@ Test script to verify the fixed NL to Query system
 
 import sys
 import os
+import pickle
 # sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'keyframe-new'))
 
 from experiments import chain
-from compile import compile_query
 
 def test_system():
     """Test the fixed system with the original query"""
@@ -16,6 +16,9 @@ def test_system():
     # Test query from experiments.py
     # nl = """Find cases where two cars approach head-on, car1 comes to a near stop (<2 m/s),
     # then after ~2s car1 turns right while car2 keeps heading straight. Enforce 90° relative heading by k2."""
+    # nl = """
+    # Find cases where a car runs close to a pedestrian. stops, then drives away.
+    # """
     nl = """
     Find cases where a car runs close to a pedestrian. stops, then drives away.
     """
@@ -28,6 +31,7 @@ def test_system():
         # Process the query
         spec = chain.invoke({"history": [], "user_request": nl})
         print(spec)
+        pickle.dump(spec, open("spec.pkl", "wb"))
 
 
         print(f"Objects: {spec.objects.counts}")
@@ -56,15 +60,15 @@ def test_system():
             print()
         
         # Try compilation
-        print("=== Compilation Test ===")
-        try:
-            # note to self: traj compilation is not supported yet
-            kf_query = compile_query(spec)
-            print("Successfully compiled to KFQuery!")
-            print(f"Descriptors: {len(kf_query.descriptors)}")
-            print(f"Constraints: {len(kf_query.constraints)}")
-        except Exception as e:
-            print(f"Compilation failed: {e}")
+        # print("=== Compilation Test ===")
+        # try:
+        #     # note to self: traj compilation is not supported yet
+        #     kf_query = compile_query(spec)
+        #     print("Successfully compiled to KFQuery!")
+        #     print(f"Descriptors: {len(kf_query.descriptors)}")
+        #     print(f"Constraints: {len(kf_query.constraints)}")
+        # except Exception as e:
+        #     print(f"Compilation failed: {e}")
             
     except Exception as e:
         print(f"Processing failed: {e}")

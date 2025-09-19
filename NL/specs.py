@@ -2,14 +2,14 @@
 from __future__ import annotations
 from pydantic import BaseModel, field_validator, Field
 from typing import List, Literal, Optional, Tuple, Dict, Union, Any
+from registry import UDFRegistry
+
 
 class PredicateAtom(BaseModel):
-    # TODO: Define these types more explicitly
-    type: Literal[
-        "heading_diff_to", "velocity_above", "velocity_below",
-        "speed_above", "speed_below", "dist_within", "dist_apart",
-        "within_bbox", "action"
-    ]
+    # TODO: can we connect this to UDFRegistry dynamically?
+    type: Literal["velocity_above", "velocity_below", "dist_within_two_obj",         
+            "speed_above", "speed_below",  "dist_apart",         
+            "within_bbox", "action" ]
     # lhs object alias used within the spec, e.g. "car1"
     obj: str
     # optional rhs target (for pairwise predicates)
@@ -26,7 +26,7 @@ class PredicateExpr(BaseModel):
     atom: Optional[PredicateAtom] = None
     args: Optional[List["PredicateExpr"]] = None
 
-PredicateExpr.update_forward_refs()
+PredicateExpr.model_rebuild()
 
 class KeyframeSpec(BaseModel):
     name: str
