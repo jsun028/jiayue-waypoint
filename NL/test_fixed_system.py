@@ -20,7 +20,7 @@ def test_system():
     # Find cases where a car runs close to a pedestrian. stops, then drives away.
     # """
     nl = """
-    Find cases where a car runs close to a pedestrian. stops, then drives away.
+    Find cases where a car runs close to a pedestrian (< 15). stops, then drives away.
     """
     
     print("=== Testing Fixed NL to Query System ===")
@@ -59,16 +59,6 @@ def test_system():
                 print(f"  Object: {c.obj}, {c.start} -> {c.end}, Template: {c.template}")
             print()
         
-        # Try compilation
-        # print("=== Compilation Test ===")
-        # try:
-        #     # note to self: traj compilation is not supported yet
-        #     kf_query = compile_query(spec)
-        #     print("Successfully compiled to KFQuery!")
-        #     print(f"Descriptors: {len(kf_query.descriptors)}")
-        #     print(f"Constraints: {len(kf_query.constraints)}")
-        # except Exception as e:
-        #     print(f"Compilation failed: {e}")
             
     except Exception as e:
         print(f"Processing failed: {e}")

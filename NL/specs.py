@@ -39,12 +39,6 @@ class AlwaysSpec(BaseModel):
     duration_sec: float = 3.0
     tol: float = 0.0
 
-class EventuallySpec(BaseModel):
-    kind: Literal["eventually"] = "eventually"
-    anchor: str
-    target: str
-    duration_sec: float
-
 class InterframeSpec(BaseModel):
     kind: Literal["interframe"] = "interframe"
     anchor: str
@@ -61,7 +55,7 @@ class TrajectorySpec(BaseModel):
     angle_rad: float     # e.g. np.pi*0.75
     deviation_strength: float = 0.0
 
-ConstraintSpec = Union[AlwaysSpec, EventuallySpec, InterframeSpec, TrajectorySpec]
+ConstraintSpec = Union[AlwaysSpec, InterframeSpec, TrajectorySpec]
 
 class ObjectsSpec(BaseModel):
     # {"car":2} + an alias map like {"car1":{"class":"car","idx":0}, "car2":{"class":"car","idx":1}}

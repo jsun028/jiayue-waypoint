@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from itertools import product
 from registry import UDFRegistry
 from specs import PredicateAtom, PredicateExpr, KeyframeSpec, QuerySpec, AlwaysSpec, InterframeSpec, TrajectorySpec
 from typing import Dict, List, Tuple
@@ -32,8 +33,12 @@ class QueryCompiler:
         
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(object_assignments):
+            # Debug: limit to first 2 assignments
+            if assignment_idx > 1:
+                print("  → Limiting to first assignments for testing")
+                break
             print(f"\n[Assignment {assignment_idx + 1}/{len(object_assignments)}] {assignment}")
-            
+
             # Find the time range where all assigned objects exist
             time_range = find_common_time_range(self.df, assignment)
             if time_range is None:
@@ -96,7 +101,6 @@ class QueryCompiler:
             num_eval = 0
             valid_combinations = []
             
-            from itertools import product
             for combo in product(*cand_lists):
                 # combo is a tuple of (frame_idx, score) tuples
                 times = [item[0] for item in combo]
@@ -213,59 +217,33 @@ class QueryCompiler:
         
         # Separate constraints by type
         self_anchored_always = {}
-        self_anchored_eventually = {}
         
         for constraint in constraints:
             if constraint.kind == "always" and constraint.anchor is None:
                 self_anchored_always[constraint.target] = constraint
-            elif constraint.kind == "eventually" and hasattr(constraint, 'anchor') and constraint.anchor is None:
-                self_anchored_eventually[constraint.target] = constraint
         
         # For each keyframe, scan all frames
         for kf_name, kf_spec in keyframes_dict.items():
+            if kf_name == 'k3':
+                continue
             frame_candidates = []
+            print(f"    Scanning keyframe '{kf_name}' …")
             
             # Scan each frame in the valid range
             for frame_idx in range(min_frame, max_frame + 1):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
-                frame_window = (frame_idx, frame_idx)  # Single frame window
-                intraframe_score = 0.0
-                
-                if self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment):
-                    intraframe_score = 1.0
-                else:
-                    continue  # Skip frames that don't satisfy the basic keyframe predicate
-                
+                # Single frame window by default
+                frame_window = (frame_idx, frame_idx)  
                 # Evaluate self-anchored ALWAYS constraint
-                always_score = 0.0
                 if kf_name in self_anchored_always:
                     always_constraint = self_anchored_always[kf_name]
                     duration_frames = self.seconds_to_frames(always_constraint.duration_sec)
-                    
-                    # Check if keyframe condition holds for the entire duration
-                    always_window = (frame_idx, frame_idx + duration_frames)
-                    if always_window[1] <= max_frame:
-                        if self.evaluate_always_constraint(kf_spec, always_window, object_assignment):
-                            always_score = 1.0
+                    frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
                 
-                # Evaluate self-anchored EVENTUALLY constraint
-                eventually_score = 0.0
-                if kf_name in self_anchored_eventually:
-                    eventually_constraint = self_anchored_eventually[kf_name]
-                    duration_frames = self.seconds_to_frames(eventually_constraint.duration_sec)
-                    
-                    # Check if keyframe condition holds at least once within the duration
-                    eventually_window = (frame_idx, frame_idx + duration_frames)
-                    if eventually_window[1] <= max_frame:
-                        if self.evaluate_eventually_constraint(kf_spec, eventually_window, object_assignment):
-                            eventually_score = 1.0
-                
-                # Aggregate score for this frame
-                aggregate_score = intraframe_score + always_score + eventually_score
-                
-                if aggregate_score > 0:
-                    frame_candidates.append((frame_idx, aggregate_score))
+                score = self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
+                if score > 0:
+                    frame_candidates.append((frame_idx, score))
             
             candidates[kf_name] = frame_candidates
         
@@ -316,56 +294,12 @@ class QueryCompiler:
             
             target_kf = keyframes_dict.get(constraint.target)
             if target_kf:
-                return self.evaluate_always_constraint(target_kf, always_window, object_assignment)
+                return self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
             
             return False
         
-        elif constraint.kind == "eventually":
-            # Eventually: target should occur within duration after anchor
-            anchor_pos = positions.get(constraint.anchor)
-            target_pos = positions.get(constraint.target)
-            
-            if anchor_pos is None or target_pos is None:
-                return False
-            
-            duration_frames = self.seconds_to_frames(constraint.duration_sec)
-            
-            # Target should occur within the duration window after anchor
-            return anchor_pos <= target_pos <= anchor_pos + duration_frames
-        
         return False
-
-    def evaluate_always_constraint(self, keyframe_spec: KeyframeSpec, 
-                                 time_window: Tuple[int, int], 
-                                 object_assignment: Dict[str, int]) -> bool:
-        """Check if keyframe condition holds for the entire time window"""
-        start_frame, end_frame = time_window
-        
-        # Sample frames within the window (can be optimized)
-        sample_rate = max(1, (end_frame - start_frame) // 10)  # Sample up to 10 frames
-        
-        for frame_idx in range(start_frame, end_frame + 1, sample_rate):
-            frame_window = (frame_idx, frame_idx)
-            if not self.evaluate_keyframe_with_binding(keyframe_spec, frame_window, object_assignment):
-                return False
-        
-        return True
-
-    def evaluate_eventually_constraint(self, keyframe_spec: KeyframeSpec, 
-                                     time_window: Tuple[int, int], 
-                                     object_assignment: Dict[str, int]) -> bool:
-        """Check if keyframe condition holds at least once within the time window"""
-        start_frame, end_frame = time_window
-        
-        # Sample frames within the window
-        sample_rate = max(1, (end_frame - start_frame) // 20)  # Sample up to 20 frames
-        
-        for frame_idx in range(start_frame, end_frame + 1, sample_rate):
-            frame_window = (frame_idx, frame_idx)
-            if self.evaluate_keyframe_with_binding(keyframe_spec, frame_window, object_assignment):
-                return True
-        
-        return False
+    
     
     def evaluate_keyframe_with_binding(self, keyframe_spec: KeyframeSpec, 
                                      frame_window: Tuple[int, int], 
@@ -447,14 +381,14 @@ class QueryCompiler:
                 # Single object predicates
                 result = udf_func(resolved_obj, *args, frame_window)
 
-            # Handle different return types
-            if isinstance(result, pd.Series):
-                return result.any()  # At least one frame satisfies
-            elif isinstance(result, bool):
-                return result
+            # Assume UDF returns a score between 0 and 1, or a boolean
+            if isinstance(result, bool):
+                return float(result)
+            elif isinstance(result, (float, int)):
+                return float(result)
             else:
-                return bool(result)
-                
+                raise ValueError(f"UDF returned unsupported type: {type(result)}")
+
         except Exception as e:
             print(f"Error evaluating predicate atom '{atom.type}': {e}")
             return False

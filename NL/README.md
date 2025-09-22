@@ -1,7 +1,7 @@
 ## Overview of workflow
-0. We assume that preprocessed data from videos are stored in csv format (e.g., examples under dataset/) 
-1. test_fixed_system.py outputs an LLM-generated keyframe spec into a pickle file: `spec.pkl`. 
-2. execute.py reads `spec.pkl`, and tries to compile and execute the query on preprocessed csv files. 
+0. We assume that preprocessed data from videos are stored in csv format (e.g., examples under `dataset/`) 
+1. `test_fixed_system.py` outputs an LLM-generated keyframe spec into a pickle file: `spec.pkl`. 
+2. `main.py` reads `spec.pkl`, and tries to compile and execute the query on preprocessed csv files. 
 
 ### TODOs
 Here are a list of things that are hardcoded, and might need to get fixed laters:
