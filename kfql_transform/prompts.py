@@ -2,9 +2,9 @@ from textwrap import dedent
 
 # Minimal, high-signal query DSL so the model doesn’t need your entire engine source.
 KFQL_QUERY_DSL = dedent("""
-You are generating a Python KeyframeQL query that uses this DSL:
+You are generating a Python KeyframeQL query that uses this Query DSL.
 
-# === KeyframeQL query DSL ===
+# === KeyframeQL Query DSL ===
 
 # Objects
 obj1 = Obj('<class_name>', idx=0)   # e.g., Obj('car', idx=0), Obj('person', idx=0)
