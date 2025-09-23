@@ -2,11 +2,18 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal, Any
 
 class ObjectSchema(BaseModel):
+    
     name: str
     cls: str
     idx: int
 
 class PredicateSchema(BaseModel):
+    # type: Literal[
+    #     "velocity_above", "velocity_below", 
+    #     "dist_within_two_obj", "dist_apart_two_obj", 
+    #     "is_approaching", "is_separating", 
+    #     "heading_diff_to"
+    # ]
     op: str
     args: List[Any]
     kind: Literal["single", "inter"]
