@@ -10,14 +10,17 @@ let canvas, video, fabricCanvas;
 let currentKeyframeIndex = -1;
 let isDrawing = false;
 
+
 // Initialize the application
 window.onload = function() {
     video = document.getElementById('mainVideo');
     canvas = document.getElementById('annotationCanvas');
     
-    setupVideo();
-    setupCanvas();
+    VideoController.setupVideo();
+    CanvasManager.setup();
     setupEventListeners();
+    // Load ML model
+    ObjectDetectionManager.loadModel();
     // Initialize default mode
     setAnnotationMode('select');
     
@@ -25,117 +28,16 @@ window.onload = function() {
     annotationData.video_id = 'demo_big_buck_bunny';
 };
 
-function setupVideo() {
-    video.addEventListener('loadedmetadata', function() {
-        resizeCanvas();
-        updateTimeDisplay();
-        updateTimelineMarkers(); 
-        setupTimelineClick(); 
-    });
-
-    video.addEventListener('timeupdate', function() {
-        updateTimeDisplay();
-        updateProgressBar();
-        highlightCurrentKeyframe();
-    });
-
-    video.addEventListener('click', function(e) {
-        if (currentMode !== 'select') {
-            e.preventDefault();
-        }
-    });
-
-    // when video plays, release keyframe
-    video.addEventListener('play', function() {
-        currentKeyframeIndex = -1;   // release keyframe
-        fabricCanvas.clear();        // clear canvas
-        highlightCurrentKeyframe();  // update sidebar UI
-        document.getElementById('intra-selected').textContent = 'None';
-    });
-}
-
-function setupCanvas() {
-    
-    fabricCanvas = new fabric.Canvas('annotationCanvas', {
-        selection: true,
-        backgroundColor: 'transparent', // This is key!
-        skipTargetFind: false
-    });
-
-    resizeCanvas();
-
-    fabricCanvas.on('mouse:down', function(e) {
-        if (currentMode === 'select') return;
-        
-        isDrawing = true;
-        const pointer = fabricCanvas.getPointer(e.e);
-        
-        if (currentMode === 'point') {
-            addPointAnnotation(pointer.x, pointer.y);
-        } else {
-            startDrawingShape(pointer.x, pointer.y);
-        }
-    });
-
-    fabricCanvas.on('mouse:move', function(e) {
-        if (!isDrawing || currentMode === 'point' || currentMode === 'select') return;
-        
-        const pointer = fabricCanvas.getPointer(e.e);
-        updateDrawingShape(pointer.x, pointer.y);
-    });
-
-    fabricCanvas.on('mouse:up', function() {
-        if (isDrawing) {
-            isDrawing = false;
-            finishDrawingShape();
-        }
-    });
-
-    // fabricCanvas.on('object:added', updateJSON);
-    fabricCanvas.on('object:removed', updateJSON);
-    fabricCanvas.on('object:modified', updateJSON);
-}
-
-// Ensure canvas sizing matches video exactly
-// v2.
-function resizeCanvas() {
-    const videoElement = document.getElementById('mainVideo');
-    const canvas = document.getElementById('annotationCanvas');
-
-    const rect = videoElement.getBoundingClientRect();
-
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    fabricCanvas.setDimensions({
-        width: rect.width,
-        height: rect.height
-    });
-}
-
 
 function setupEventListeners() {
-    document.getElementById('videoFile').addEventListener('change', handleFileUpload);
-    window.addEventListener('resize', resizeCanvas);
+    document.getElementById('videoFile').addEventListener(
+        'change', VideoController.handleFileUpload);
+
+    // Window resize
+    window.addEventListener('resize', CanvasManager.resize);
 }
 
-function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (file) {
-        // Create a URL for the video file
-        const url = URL.createObjectURL(file);
-        
-        // Set the video's source to the new URL
-        video.src = url;
-        
-        // Load the new video
-        video.load();
 
-        // Update video_id and clear old annotations
-        annotationData.video_id = file.name.replace(/\.[^/.]+$/, "");
-        clearAnnotations(); // Use clearAnnotations to avoid confirmation dialog
-    }
-}
 
 function setAnnotationMode(mode) {
     currentMode = mode;
@@ -144,147 +46,12 @@ function setAnnotationMode(mode) {
     document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(mode + 'Btn').classList.add('active');
 
-    const upperCanvasEl = document.querySelector('.upper-canvas');
-
-    if (mode === 'select') {
-        fabricCanvas.isDrawingMode = false;
-        fabricCanvas.selection = true;
-        upperCanvasEl.style.setProperty("pointer-events", "none", "important"); // enable video controls
-        fabricCanvas.defaultCursor = 'default';
-    } else {
-        if (currentKeyframeIndex >= 0) {
-            fabricCanvas.isDrawingMode = false; 
-            fabricCanvas.selection = false;
-            upperCanvasEl.style.setProperty("pointer-events", "auto", "important"); // enable drawing canvas
-            fabricCanvas.defaultCursor = 'crosshair';
-        } else {
-            alert("select a keyframe first.");
-            setAnnotationMode('select');
-        }
-    }
+    // Use CanvasManager for canvas mode changes
+    CanvasManager.setMode(mode);
 }
-
-let startPoint = null;
-let activeShape = null;
-
-function startDrawingShape(x, y) {
-    startPoint = { x, y };
-    
-    if (currentMode === 'rect') {
-        activeShape = new fabric.Rect({
-            left: x,
-            top: y,
-            width: 0,
-            height: 0,
-            fill: 'rgba(102, 126, 234, 0.3)',
-            stroke: '#667eea',
-            strokeWidth: 2
-        });
-    } 
-
-    if (activeShape) {
-        fabricCanvas.add(activeShape);
-    }
-}
-
-function updateDrawingShape(x, y) {
-    if (!activeShape || !startPoint) return;
-    
-    if (currentMode === 'rect') {
-        const width = Math.abs(x - startPoint.x);
-        const height = Math.abs(y - startPoint.y);
-        const left = Math.min(x, startPoint.x);
-        const top = Math.min(y, startPoint.y);
-        
-        activeShape.set({
-            left: left,
-            top: top,
-            width: width,
-            height: height
-        });
-    } 
-    
-    fabricCanvas.renderAll();
-}
-
-function finishDrawingShape() {
-    if (activeShape) {
-        // Add metadata to the shape
-        activeShape.set({
-            id: 'obj_' + Date.now(),
-            timestamp: video.currentTime,
-            label: prompt('Enter object label:') || 'unlabeled'
-        });
-
-        fabricCanvas.renderAll();
-
-        if (currentKeyframeIndex >= 0) {
-            const keyframe = annotationData.keyframes[currentKeyframeIndex];
-            keyframe.objects.push({
-                id: activeShape.id,
-                label: activeShape.label,
-                timestamp: activeShape.timestamp,
-                type: 'bounding_box',
-                coordinates: {
-                    x: Math.round(activeShape.left),
-                    y: Math.round(activeShape.top),
-                    width: Math.round(activeShape.width * activeShape.scaleX),
-                    height: Math.round(activeShape.height * activeShape.scaleY)
-                }
-            });
-        }
-
-        activeShape = null;
-        startPoint = null;
-        setAnnotationMode('select');
-        displayConstraints();
-        updateJSON();
-    }
-}
-
-function addPointAnnotation(x, y) {
-    if (currentKeyframeIndex < 0) {
-        alert("select a keyframe first.");
-        setAnnotationMode('select');
-        return;
-    }
-
-    const point = new fabric.Circle({
-        left: x - 5,
-        top: y - 5,
-        radius: 5,
-        fill: '#f39c12',
-        stroke: '#e67e22',
-        strokeWidth: 2,
-        id: 'point_' + Date.now(),
-        timestamp: video.currentTime,
-        label: prompt('Enter point label:') || 'point'
-    });
-    
-    fabricCanvas.add(point);
-
-    // add to current keyframe.objects
-    const keyframe = annotationData.keyframes[currentKeyframeIndex];
-    keyframe.objects.push({
-        id: point.id,
-        label: point.label,
-        timestamp: point.timestamp,
-        type: 'point',
-        coordinates: {
-            x: Math.round(point.left + point.radius),
-            y: Math.round(point.top + point.radius)
-        }
-    });
-
-    isDrawing = false;
-    setAnnotationMode('select');
-    displayConstraints();
-    updateJSON();
-}
-
 
 function addKeyframe() {
-    const timestamp = video.currentTime;
+    const timestamp = VideoController.getCurrentTime();
     
     // Check if keyframe already exists at this time (within 0.5 seconds)
     const existingKeyframe = annotationData.keyframes.find(kf => 
@@ -309,11 +76,16 @@ function addKeyframe() {
     
     annotationData.keyframes.push(keyframe);
     annotationData.keyframes.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Find the index of the newly added keyframe after sorting
+    currentKeyframeIndex = annotationData.keyframes.findIndex(kf => kf.id === keyframe.id);
     
     updateKeyframeList();
-    updateTimelineMarkers(); 
+    VideoController.updateTimelineMarkers(); 
     updateKeyframeDropdowns();
+    VideoController.highlightCurrentKeyframe();
     updateJSON();
+    ObjectDetectionManager.updateUI();
 }
 
 function updateKeyframeDropdowns() {
@@ -329,7 +101,8 @@ function updateKeyframeDropdowns() {
     toSelect.innerHTML = '<option value="">Select keyframe...</option>';
     
     annotationData.keyframes.forEach((keyframe, index) => {
-        const option = `<option value="${index}">Keyframe ${index + 1} (${formatTime(keyframe.timestamp)})</option>`;
+        const option = `<option value="${index}">Keyframe ${index + 1} (
+            ${VideoController.formatTime(keyframe.timestamp)})</option>`;
         fromSelect.innerHTML += option;
         toSelect.innerHTML += option;
     });
@@ -351,8 +124,10 @@ function updateInterFrameUI() {
     const selectedDisplay = document.getElementById('selectedKeyframes');
     
     if (fromIndex !== '' && toIndex !== '') {
-        const fromTime = formatTime(annotationData.keyframes[parseInt(fromIndex)].timestamp);
-        const toTime = formatTime(annotationData.keyframes[parseInt(toIndex)].timestamp);
+        const fromTime = VideoController.formatTime(
+            annotationData.keyframes[parseInt(fromIndex)].timestamp);
+        const toTime = VideoController.formatTime(
+            annotationData.keyframes[parseInt(toIndex)].timestamp);
         selectedDisplay.textContent = `Keyframe ${parseInt(fromIndex) + 1} (${fromTime}) → Keyframe ${parseInt(toIndex) + 1} (${toTime})`;
         selectedDisplay.style.color = '#27ae60';
     } else if (fromIndex !== '' || toIndex !== '') {
@@ -364,57 +139,16 @@ function updateInterFrameUI() {
     }
 }
 
-function updateTimelineMarkers() {
-    const markersContainer = document.getElementById('keyframeMarkers');
-    const timelineBar = document.getElementById('timelineBar');
-    
-    if (!markersContainer || !video.duration) return;
-    
-    // Clear existing markers
-    markersContainer.innerHTML = '';
-    
-    // Add markers for each keyframe
-    annotationData.keyframes.forEach((keyframe, index) => {
-        const marker = document.createElement('div');
-        marker.className = 'keyframe-marker';
-        marker.title = `Keyframe ${index + 1} - ${formatTime(keyframe.timestamp)}`;
-        
-        // Position marker based on timestamp
-        const position = (keyframe.timestamp / video.duration) * 100;
-        marker.style.left = position + '%';
-        
-        // Add click handler to seek to keyframe
-        marker.onclick = (e) => {
-            e.stopPropagation();
-            seekToKeyframe(index);
-        };
-        
-        markersContainer.appendChild(marker);
-    });
-}
-
-function seekToKeyframe(index) {
-    currentKeyframeIndex = index;
-    const keyframe = annotationData.keyframes[index];
-    video.currentTime = keyframe.timestamp;
-    
-    loadKeyframeAnnotations(keyframe);
-
-    highlightCurrentKeyframe();
-    highlightTimelineMarker(index);
-    displayConstraints();
-}
-
-
-function highlightTimelineMarker(activeIndex) {
-    document.querySelectorAll('.keyframe-marker').forEach((marker, index) => {
-        marker.classList.toggle('active', index === activeIndex);
-    });
-}
 
 // Add timeline click functionality
 function setupTimelineClick() {
     const timelineBar = document.getElementById('timelineBar');
+
+    // Check if the timeline bar element exists
+    if (!timelineBar) {
+        console.warn('Timeline bar element not found');
+        return;
+    }
     
     timelineBar.addEventListener('click', (e) => {
         const rect = timelineBar.getBoundingClientRect();
@@ -438,7 +172,7 @@ function updateKeyframeList() {
         div.innerHTML = `
             <div class="kf-content">
                 <strong>Keyframe ${index + 1}</strong><br>
-                Time: ${formatTime(keyframe.timestamp)}<br>
+                Time: ${VideoController.formatTime(keyframe.timestamp)}<br>
                 Objects: ${keyframe.objects.length}
             </div>
             <button class="delete-kf-btn" data-index="${index}">❌</button>
@@ -447,7 +181,7 @@ function updateKeyframeList() {
             e.stopPropagation(); // 클릭 시 keyframe seek 방지
             deleteKeyframe(index);
         };
-        div.onclick = () => seekToKeyframe(index);
+        div.onclick = () => VideoController.seekToKeyframe(index);
         list.appendChild(div);
     });
 }
@@ -467,59 +201,16 @@ function deleteKeyframe(index) {
     );
 
     updateKeyframeList();
-    updateTimelineMarkers();
+    VideoController.updateTimelineMarkers();
     updateKeyframeDropdowns();
     displayConstraints();
     updateJSON();
+    ObjectDetectionManager.updateUI();
 }
 
 
-function highlightCurrentKeyframe() {
-    document.querySelectorAll('.keyframe-item').forEach((item, index) => {
-        item.classList.toggle('active', index === currentKeyframeIndex);
-    });
-}
 
 let isLoadingKeyframe = false;
-
-function loadKeyframeAnnotations(keyframe) {
-    isLoadingKeyframe = true;   // disable JSON update temporarily
-    fabricCanvas.clear();
-
-    keyframe.objects.forEach(objData => {
-        let obj;
-        if (objData.type === 'bounding_box') {
-            obj = new fabric.Rect({
-                left: objData.coordinates.x,
-                top: objData.coordinates.y,
-                width: objData.coordinates.width,
-                height: objData.coordinates.height,
-                fill: 'rgba(102, 126, 234, 0.3)',
-                stroke: '#667eea',
-                strokeWidth: 2
-            });
-        } else if (objData.type === 'point') {
-            obj = new fabric.Circle({
-                left: objData.coordinates.x - 5,
-                top: objData.coordinates.y - 5,
-                radius: 5,
-                fill: '#f39c12',
-                stroke: '#e67e22',
-                strokeWidth: 2
-            });
-        }
-        if (obj) {
-            obj.set({
-                id: objData.id,
-                label: objData.label,
-                timestamp: objData.timestamp
-            });
-            fabricCanvas.add(obj);
-        }
-    });
-
-    isLoadingKeyframe = false;  // allow JSON update again
-}
 
 
 function addObjectConstraint(objectId) {
@@ -643,7 +334,6 @@ function deleteInterFrameConstraint(idx) {
 }
 
 
-// v3.
 function displayConstraints() {
     const frameDiv = document.getElementById('frameConstraints');
     const selectedKF = document.getElementById('intra-selected');
@@ -749,15 +439,13 @@ function updateJSON() {
 
 
 
-
-
 function clearAnnotations() {
-    fabricCanvas.clear();
+    CanvasManager.clear();
     annotationData.keyframes = [];
     annotationData.inter_frame_constraints = [];
     currentKeyframeIndex = -1;
     updateKeyframeList();
-    updateTimelineMarkers();
+    VideoController.updateTimelineMarkers();
     displayConstraints();
     updateJSON();
 }
@@ -768,27 +456,6 @@ function clearAllAnnotations() {
     }
 }
 
-function updateTimeDisplay() {
-    document.getElementById('currentTime').textContent = formatTime(video.currentTime);
-    document.getElementById('duration').textContent = formatTime(video.duration || 0);
-    
-    // Update timeline markers when video metadata loads
-    if (video.duration && annotationData.keyframes.length > 0) {
-        updateTimelineMarkers();
-    }
-}
-
-function updateProgressBar() {
-    const progress = (video.currentTime / video.duration) * 100;
-    document.getElementById('progressFill').style.width = progress + '%';
-}
-
-function formatTime(seconds) {
-    if (isNaN(seconds)) return '00:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
 
 function copyToClipboard() {
     const jsonText = document.getElementById('jsonOutput').textContent;
@@ -805,35 +472,5 @@ function copyToClipboard() {
         alert('JSON copied to clipboard!');
     });
 }
-
-// Keyboard shortcuts
-document.addEventListener('keydown', function(e) {
-    if (e.target.tagName === 'INPUT') return;
-    
-    switch(e.key) {
-        case ' ':
-            e.preventDefault();
-            video.paused ? video.play() : video.pause();
-            break;
-        case 'k':
-            addKeyframe();
-            break;
-        case 'r':
-            setAnnotationMode('rect');
-            break;
-        case 'p':
-            setAnnotationMode('point');
-            break;
-        case 'v':
-            setAnnotationMode('select');
-            break;
-        case 'Delete':
-        case 'Backspace':
-            if (currentMode === 'select') {
-                fabricCanvas.remove(fabricCanvas.getActiveObject());
-            }
-            break;
-    }
-});
 
 

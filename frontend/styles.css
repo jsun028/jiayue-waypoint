@@ -369,3 +369,85 @@ h1 {
     }
 }
 
+/* Additional styles for object detection UI */
+.detection-section {
+    background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.detection-section h4 {
+    margin: 0 0 10px 0;
+    color: #856404;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.detection-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-ai {
+    background: linear-gradient(135deg, #ffc107, #ffb300);
+    color: #212529;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-ai:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ffb300, #ffa000);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(255, 193, 7, 0.3);
+}
+
+.btn-ai:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.detection-info {
+    font-size: 0.85em;
+    color: #856404;
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 4px;
+}
+
+.detected-object {
+    background: rgba(255, 243, 205, 0.3);
+    border-left: 3px solid #ffc107;
+}
+
+.confidence-badge {
+    background: #ffc107;
+    color: #212529;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+.ai-tag {
+    color: #856404;
+    font-size: 0.75em;
+    font-weight: 500;
+    background: rgba(255, 193, 7, 0.2);
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 6px;
+}

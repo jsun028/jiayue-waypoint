@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Annotation Tool</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
     <!-- Import CSS file -->
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -43,6 +45,22 @@
                     <button class="tool-btn" onclick="setAnnotationMode('rect')" id="rectBtn">📦 Bounding Box</button>
                     <button class="tool-btn" onclick="setAnnotationMode('point')" id="pointBtn">📍 Point</button>
                     <button class="tool-btn" onclick="setAnnotationMode('select')" id="selectBtn">👆 Select</button>
+                </div>
+            </div>
+
+            <!-- Object Detection Section -->
+            <div class="detection-section">
+                <h4>🤖 Object Detection</h4>
+                <div class="detection-buttons">
+                    <button class="btn-ai" onclick="ObjectDetectionManager.detectOnCurrentKeyframe()" id="detectObjectsBtn" disabled>
+                        🔍 <span>Loading Model...</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="ObjectDetectionManager.clearDetectedObjects()" id="clearDetectedBtn">
+                        🧹 Clear Detected
+                    </button>
+                </div>
+                <div class="detection-info">
+                    💡 <strong>Tip:</strong> Select a keyframe and click "Detect Objects" to automatically identify objects in the current frame. You can then edit, label, and add constraints to detected objects.
                 </div>
             </div>
 
@@ -94,5 +112,8 @@
     </div>
 
     <script src="script.js"></script>
+    <script src="canvas-manager.js"></script>
+    <script src="video-controller.js"></script>
+    <script src="object-detection.js"></script>
 </body>
 </html>
