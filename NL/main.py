@@ -13,7 +13,7 @@ def example_usage():
     registry = UDFRegistry(df)
 
     # Load a sample spec
-    spec = pickle.load(open("generated_specs/spec-v2.pkl", "rb"))
+    spec = pickle.load(open("spec.pkl", "rb"))
     print("spec: ", spec)
 
     print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")

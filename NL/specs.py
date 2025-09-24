@@ -8,12 +8,13 @@ import json
 
 class PredicateAtom(BaseModel):
     # TODO: can we connect this to UDFRegistry dynamically?
-    type: Literal[
-        "velocity_above", "velocity_below", 
-        "dist_within_two_obj", "dist_apart_two_obj", 
-        "is_approaching", "is_separating", 
-        "heading_diff_to"
-    ]
+    # see semantic_checker in experiments.py.
+    # type: Literal[
+    #     "velocity_above", "velocity_below", 
+    #     "dist_within_two_obj", "dist_apart_two_obj", 
+    #     "is_approaching", "is_separating", 
+    #     "heading_diff_to"
+    # ]
     type: str
     # lhs object alias used within the spec, e.g. "car1"
     obj: str
@@ -24,13 +25,6 @@ class PredicateAtom(BaseModel):
     tol: Optional[float] = None
     bbox: Optional[Tuple[float, float, float, float]] = None
     label: Optional[str] = None  # e.g. action label
-
-    # @field_validator("type")
-    # def validate_type(cls, v):
-    #     # assume you have a global or injected registry
-    #     if v not in GLOBAL_UDF_REGISTRY.get_all_udfs():
-    #         raise ValueError(f"Unknown UDF type '{v}' not in registry")
-    #     return v
 
 class PredicateExpr(BaseModel):
     # Boolean expression is expressed as a tree (AND/OR/NOT) over atoms.

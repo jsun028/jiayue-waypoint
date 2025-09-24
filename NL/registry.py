@@ -28,19 +28,6 @@ class UDFRegistry:
         """Dynamically register a new UDF"""
         self.udf_registry[name] = func
     
-    # Auto-generation for unknown UDFs
-    # def autogen_udf(self, name: str) -> Callable:
-    #     print(f"[AUTO-GEN] Registering new predicate UDF: '{name}'")
-
-    #     def always_true_predicate(*args, **kwargs) -> float:
-    #         """
-    #         Mock predicate that always evaluates to 1.0 (true).
-    #         Acts like a whitelist for query validation.
-    #         """
-    #         return 1.0
-
-    #     return always_true_predicate
-
     def autogen_udf(self, name: str) -> Callable:
         print(f"[AUTO-GEN] Registering new predicate UDF: '{name}'")
 

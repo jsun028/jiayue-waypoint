@@ -24,22 +24,6 @@ def test_system():
     Find cases where a car runs close to a pedestrian (< 15). stops, then drives away.
     """
 
-    # # (exp-01)
-    # nl = """
-    # two cars moving in opposite directions, 
-    # and then in perpendicular ways after crossing the intersection, 
-    # after 3 seconds"
-    # """
-    # # (exp-02)
-    # nl = """
-    # two cars moving in opposite directions, 
-    # and then one car turns right passing the intersection, 
-    # after 3 seconds
-    # """
-    # nl = """
-    # A car suddenly flies into the air above the intersection
-    # """
-    
     AVAILABLE_UDFS = ", ".join(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
 
     print("=== Testing Fixed NL to Query System ===")
