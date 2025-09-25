@@ -50,7 +50,6 @@ const VideoController = {
         fabricCanvas.clear();        // clear canvas
         this.highlightCurrentKeyframe();  // update sidebar UI
         document.getElementById('intra-selected').textContent = 'None';
-        updateDetectionUI(); // Update detection button state
     },
 
     /**
@@ -61,7 +60,6 @@ const VideoController = {
 
         // Check if the timeline bar element exists
         if (!timelineBar) {
-            console.warn('Timeline bar element not found');
             return;
         }
         
@@ -160,7 +158,6 @@ const VideoController = {
         this.highlightCurrentKeyframe();
         this.highlightTimelineMarker(index);
         displayConstraints();
-        updateDetectionUI();
         
         console.log(`Seeked to keyframe ${index + 1} at ${keyframe.timestamp}s`);
     },

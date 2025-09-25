@@ -74,7 +74,7 @@ const CanvasManager = {
      */
     startDrawingShape(x, y) {
         startPoint = { x, y };
-        
+
         if (currentMode === 'rect') {
             activeShape = new fabric.Rect({
                 left: x,
@@ -99,7 +99,7 @@ const CanvasManager = {
      */
     updateDrawingShape(x, y) {
         if (!activeShape || !startPoint) return;
-        
+
         if (currentMode === 'rect') {
             const width = Math.abs(x - startPoint.x);
             const height = Math.abs(y - startPoint.y);
@@ -122,11 +122,16 @@ const CanvasManager = {
      */
     finishDrawingShape() {
         if (activeShape) {
+            const label = prompt('Enter object label:') || 'object';
+            const objectCount = this.getObjectCountForClass(label) + 1;
+            const displayId = `${label}${objectCount}`;
+
             // Add metadata to the shape
             activeShape.set({
-                id: 'obj_' + Date.now(),
+                id: 'manual_' + displayId + '_' + Date.now(),
                 timestamp: video.currentTime,
-                label: prompt('Enter object label:') || 'unlabeled'
+                label: `${displayId} (manual)`,
+                displayId: displayId
             });
 
             fabricCanvas.renderAll();
@@ -214,15 +219,13 @@ const CanvasManager = {
             let obj;
             
             if (objData.type === 'bounding_box') {
-                // Check if it's a detected object for styling
-                const isDetected = objData.detection_data?.auto_detected;
                 obj = new fabric.Rect({
                     left: objData.coordinates.x,
                     top: objData.coordinates.y,
                     width: objData.coordinates.width,
                     height: objData.coordinates.height,
-                    fill: isDetected ? 'rgba(255, 193, 7, 0.2)' : 'rgba(102, 126, 234, 0.3)',
-                    stroke: isDetected ? '#ffc107' : '#667eea',
+                    fill: 'rgba(102, 126, 234, 0.3)',
+                    stroke: '#667eea',
                     strokeWidth: 2
                 });
             } else if (objData.type === 'point') {
@@ -241,8 +244,6 @@ const CanvasManager = {
                     id: objData.id,
                     label: objData.label,
                     timestamp: objData.timestamp,
-                    isDetected: objData.detection_data?.auto_detected || false,
-                    confidence: objData.detection_data?.confidence
                 });
                 fabricCanvas.add(obj);
             }
@@ -319,6 +320,16 @@ const CanvasManager = {
         return fabricCanvas ? fabricCanvas.getActiveObject() : null;
     },
 
+    getObjectCountForClass(className) {
+        if (currentKeyframeIndex < 0) return 0;
+        
+        const keyframe = annotationData.keyframes[currentKeyframeIndex];
+        console.log("getObjectCountForClass", keyframe.objects);
+        return keyframe.objects.filter(obj => 
+            obj.label.startsWith(className)
+        ).length;
+    },
+
     /**
      * Set canvas interaction mode
      * @param {string} mode - Mode ('select', 'rect', 'point')
@@ -345,94 +356,6 @@ const CanvasManager = {
                 setAnnotationMode('select');
             }
         }
-    },
-
-    /**
-     * Update canvas objects with detection data
-     * @param {Array} predictions - Detection predictions
-     */
-    addDetectedObjects(predictions) {
-        if (currentKeyframeIndex < 0) return;
-        
-        const keyframe = annotationData.keyframes[currentKeyframeIndex];
-        
-        // Get scaling factors between video natural size and displayed size
-        const videoRect = video.getBoundingClientRect();
-        const scaleX = videoRect.width / video.videoWidth;
-        const scaleY = videoRect.height / video.videoHeight;
-        
-        predictions.forEach((prediction, index) => {
-            const [x, y, width, height] = prediction.bbox;
-            
-            // Scale coordinates to match displayed video size
-            const scaledX = x * scaleX;
-            const scaledY = y * scaleY;
-            const scaledWidth = width * scaleX;
-            const scaledHeight = height * scaleY;
-            
-            // Create fabric.js rectangle for bounding box
-            const rect = new fabric.Rect({
-                left: scaledX,
-                top: scaledY,
-                width: scaledWidth,
-                height: scaledHeight,
-                fill: 'rgba(255, 193, 7, 0.2)', // Yellow for detected objects
-                stroke: '#ffc107',
-                strokeWidth: 2,
-                id: 'detected_' + Date.now() + '_' + index,
-                label: `${prediction.class} (${Math.round(prediction.score * 100)}%)`,
-                timestamp: video.currentTime,
-                isDetected: true,
-                confidence: prediction.score
-            });
-            
-            // Add to fabric canvas
-            fabricCanvas.add(rect);
-            
-            // Add to keyframe data
-            keyframe.objects.push({
-                id: rect.id,
-                label: rect.label,
-                timestamp: rect.timestamp,
-                type: 'bounding_box',
-                coordinates: {
-                    x: Math.round(scaledX),
-                    y: Math.round(scaledY),
-                    width: Math.round(scaledWidth),
-                    height: Math.round(scaledHeight)
-                },
-                detection_data: {
-                    class: prediction.class,
-                    confidence: prediction.score,
-                    auto_detected: true
-                },
-                constraints: []
-            });
-        });
-        
-        fabricCanvas.renderAll();
-        displayConstraints();
-        updateJSON();
-    },
-
-    /**
-     * Remove detected objects from canvas and data
-     */
-    clearDetectedObjects() {
-        if (currentKeyframeIndex < 0) return;
-        
-        const keyframe = annotationData.keyframes[currentKeyframeIndex];
-        
-        // Remove detected objects from fabric canvas
-        const objectsToRemove = fabricCanvas.getObjects().filter(obj => obj.isDetected);
-        objectsToRemove.forEach(obj => fabricCanvas.remove(obj));
-        
-        // Remove detected objects from keyframe data
-        keyframe.objects = keyframe.objects.filter(obj => !obj.detection_data?.auto_detected);
-        
-        fabricCanvas.renderAll();
-        displayConstraints();
-        updateJSON();
     },
 
 };

@@ -107,79 +107,6 @@ const ObjectDetectionManager = {
     },
 
     /**
-     * Run detection on multiple keyframes
-     * @param {Array} keyframeIndices - Array of keyframe indices to process
-     */
-    async detectBatch(keyframeIndices = null) {
-        if (!this.model) {
-            alert('Object detection model not loaded.');
-            return;
-        }
-
-        // Use all keyframes if none specified
-        if (!keyframeIndices) {
-            keyframeIndices = Array.from({length: annotationData.keyframes.length}, (_, i) => i);
-        }
-
-        if (keyframeIndices.length === 0) {
-            alert('No keyframes to process.');
-            return;
-        }
-
-        const originalKeyframeIndex = currentKeyframeIndex;
-        let processedCount = 0;
-        let totalDetected = 0;
-
-        try {
-            this.isDetecting = true;
-            this.updateUI();
-
-            for (const index of keyframeIndices) {
-                // Seek to keyframe
-                VideoController.seekToKeyframe(index);
-                
-                // Wait a bit for video to seek
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                // Detect objects
-                const detectionCanvas = document.createElement('canvas');
-                const ctx = detectionCanvas.getContext('2d');
-                const videoDimensions = VideoController.getVideoDimensions();
-                detectionCanvas.width = videoDimensions.width;
-                detectionCanvas.height = videoDimensions.height;
-                ctx.drawImage(video, 0, 0, videoDimensions.width, videoDimensions.height);
-
-                const predictions = await this.model.detect(detectionCanvas);
-                const filteredPredictions = this.filterPredictions(predictions);
-
-                if (filteredPredictions.length > 0) {
-                    CanvasManager.addDetectedObjects(filteredPredictions);
-                    totalDetected += filteredPredictions.length;
-                }
-
-                processedCount++;
-                console.log(`Processed keyframe ${index + 1}/${annotationData.keyframes.length}`);
-            }
-
-            // Return to original keyframe
-            if (originalKeyframeIndex >= 0) {
-                VideoController.seekToKeyframe(originalKeyframeIndex);
-            }
-
-            this.isDetecting = false;
-            this.updateUI();
-
-            alert(`Batch detection complete!\nProcessed: ${processedCount} keyframes\nTotal objects detected: ${totalDetected}`);
-
-        } catch (error) {
-            console.error('Batch detection failed:', error);
-            this.isDetecting = false;
-            this.updateUI();
-            alert('Batch detection failed. Please try again.');
-        }
-    },
-
-    /**
      * Filter predictions based on confidence and other criteria
      * @param {Array} predictions - Raw predictions from model
      * @param {number} minConfidence - Minimum confidence threshold
@@ -189,19 +116,6 @@ const ObjectDetectionManager = {
         return predictions
             .filter(pred => pred.score >= minConfidence)
             .sort((a, b) => b.score - a.score); // Sort by confidence descending
-    },
-
-    /**
-     * Get model information
-     * @returns {Object} Model information
-     */
-    getModelInfo() {
-        return {
-            loaded: !!this.model,
-            loading: this.isModelLoading,
-            detecting: this.isDetecting,
-            type: 'COCO-SSD'
-        };
     },
 
     /**

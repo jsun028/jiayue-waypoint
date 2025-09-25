@@ -19,8 +19,6 @@ window.onload = function() {
     VideoController.setupVideo();
     CanvasManager.setup();
     setupEventListeners();
-    // Load ML model
-    ObjectDetectionManager.loadModel();
     // Initialize default mode
     setAnnotationMode('select');
     
@@ -85,7 +83,6 @@ function addKeyframe() {
     updateKeyframeDropdowns();
     VideoController.highlightCurrentKeyframe();
     updateJSON();
-    ObjectDetectionManager.updateUI();
 }
 
 function updateKeyframeDropdowns() {
@@ -205,7 +202,6 @@ function deleteKeyframe(index) {
     updateKeyframeDropdowns();
     displayConstraints();
     updateJSON();
-    ObjectDetectionManager.updateUI();
 }
 
 
@@ -239,7 +235,7 @@ function deleteObjectConstraint(objectId, idx) {
     updateJSON();
 }
 
-function addFrameConstraint() {
+function addFrameConstraint() {    
     if (currentKeyframeIndex < 0) {
         alert('Please select a keyframe first.');
         return;
@@ -399,40 +395,6 @@ function displayConstraints() {
 function updateJSON() {
     if (isLoadingKeyframe) return;
 
-    if (currentKeyframeIndex >= 0) {
-        const keyframe = annotationData.keyframes[currentKeyframeIndex];
-
-        // update current canvas objects with existing object constraints
-        keyframe.objects = fabricCanvas.getObjects().map(obj => {
-            const existingObj = keyframe.objects.find(o => o.id === obj.id);
-
-            const objData = {
-                id: obj.id || 'obj_' + Date.now(),
-                label: obj.label || 'unlabeled',
-                timestamp: keyframe.timestamp,
-                constraints: existingObj?.constraints || []
-            };
-
-            if (obj.type === 'rect') {
-                objData.type = 'bounding_box';
-                objData.coordinates = {
-                    x: Math.round(obj.left),
-                    y: Math.round(obj.top),
-                    width: Math.round(obj.width * obj.scaleX),
-                    height: Math.round(obj.height * obj.scaleY)
-                };
-            } else if (obj.type === 'circle') {
-                objData.type = 'point';
-                objData.coordinates = {
-                    x: Math.round(obj.left + obj.radius),
-                    y: Math.round(obj.top + obj.radius)
-                };
-            }
-
-            return objData;
-        });
-    }
-
     document.getElementById('jsonOutput').textContent =
         JSON.stringify(annotationData, null, 2);
 }
@@ -471,6 +433,40 @@ function copyToClipboard() {
         document.body.removeChild(textArea);
         alert('JSON copied to clipboard!');
     });
+}
+
+// Tab switching functionality
+function switchTab(tabName) {
+    // Remove active class from all tabs and panels
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+    
+    // Add active class to clicked tab and corresponding panel
+    document.getElementById(tabName + 'Tab').classList.add('active');
+    document.getElementById(tabName + 'Panel').classList.add('active');
+    
+    // Update tool button states if switching to annotation tab
+    if (tabName === 'annotation') {
+        updateToolButtonStates();
+    }
+    
+    // Update stats if switching to export tab
+    if (tabName === 'export') {
+        updateAnnotationStats();
+    }
+}
+
+// Update tool button active states
+function updateToolButtonStates() {
+    document.querySelectorAll('.tool-btn-compact').forEach(btn => btn.classList.remove('active'));
+    
+    if (currentMode === 'select') {
+        document.getElementById('selectBtn').classList.add('active');
+    } else if (currentMode === 'rect') {
+        document.getElementById('rectBtn').classList.add('active');
+    } else if (currentMode === 'point') {
+        document.getElementById('pointBtn').classList.add('active');
+    }
 }
 
 

@@ -12,7 +12,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎬 Video Annotation</h1>
+        <!--<h1>🎬 Keyframe Annotation</h1>-->
         
         <div class="file-upload">
             <input type="file" id="videoFile" class="file-input" accept="video/*">
@@ -21,14 +21,6 @@
 
         <div class="main-layout">
             <div class="video-section">
-                <div class="video-container">
-                    <video id="mainVideo" controls="">
-                        <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                    <canvas id="annotationCanvas" class="annotation-overlay"></canvas>
-                </div>
-
                 <div class="controls">
                     <button class="btn btn-primary" onclick="addKeyframe()">⭐ Add Keyframe</button>
                     <button class="btn btn-secondary" onclick="clearAnnotations()">🗑️ Clear All</button>
@@ -41,79 +33,138 @@
                     </div>
                 </div>
 
-                <div class="annotation-tools">
-                    <button class="tool-btn" onclick="setAnnotationMode('rect')" id="rectBtn">📦 Bounding Box</button>
-                    <button class="tool-btn" onclick="setAnnotationMode('point')" id="pointBtn">📍 Point</button>
-                    <button class="tool-btn" onclick="setAnnotationMode('select')" id="selectBtn">👆 Select</button>
+                <div class="video-container">
+                    <video id="mainVideo" controls="">
+                        <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <canvas id="annotationCanvas" class="annotation-overlay"></canvas>
                 </div>
+
+
             </div>
 
-            <!-- Object Detection Section -->
-            <div class="detection-section">
-                <h4>🤖 Object Detection</h4>
-                <div class="detection-buttons">
-                    <button class="btn-ai" onclick="ObjectDetectionManager.detectOnCurrentKeyframe()" id="detectObjectsBtn" disabled>
-                        🔍 <span>Loading Model...</span>
-                    </button>
-                    <button class="btn btn-secondary" onclick="ObjectDetectionManager.clearDetectedObjects()" id="clearDetectedBtn">
-                        🧹 Clear Detected
-                    </button>
-                </div>
-                <div class="detection-info">
-                    💡 <strong>Tip:</strong> Select a keyframe and click "Detect Objects" to automatically identify objects in the current frame. You can then edit, label, and add constraints to detected objects.
-                </div>
+            
+
+    <div class="sidebar">
+    <!-- Tab Navigation -->
+    <div class="tab-navigation">
+        <button class="tab-btn active" onclick="switchTab('annotation')" id="annotationTab">
+            ✏️ Annotation
+        </button>
+        <button class="tab-btn" onclick="switchTab('constraints')" id="constraintsTab">
+            ⚠️ Constraints
+        </button>
+        <button class="tab-btn" onclick="switchTab('export')" id="exportTab">
+            📥 Export
+        </button>
+    </div>
+
+    <!-- Tab Content Panels -->
+    <div class="tab-content">
+        <!-- Annotation Tab -->
+        <div class="tab-panel active" id="annotationPanel">
+            <!-- Keyframes Panel -->
+            <div class="kf-panel">
+                <h3>Keyframes</h3>
+                <div id="keyframeList" class="keyframe-list"></div>
             </div>
 
-            <div class="sidebar">
-                <div class="panel">
-                    <h3>🎯 Keyframes</h3>
-                    <div id="keyframeList" class="keyframe-list"></div>
+            <!-- Manual Annotation Panel -->
+            <div class="manual-annotation-panel">
+                <div class="panel-header">
+                    <h4>Manual Annotation</h4>
+                    <span class="panel-subtitle">Draw and label objects manually</span>
                 </div>
-
-                <div class="panel">
-                    <h3>🏷️ Frame Constraints</h3>
-                    <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
-                        Selected: <span id="intra-selected">None</span>
-                    </div>
                 
-                    <div id="frameConstraints"></div>
+                <div class="annotation-tools">
+                    <button class="tool-btn" onclick="setAnnotationMode('select')" id="selectBtn">
+                        <span class="tool-icon">👆</span>
+                        <span class="tool-label">Select</span>
+                    </button>
+                    
+                    <button class="tool-btn" onclick="setAnnotationMode('rect')" id="rectBtn">
+                        <span class="tool-icon">📦</span>
+                        <span class="tool-label">Bounding Box</span>
+                    </button>
+                    
+                    <button class="tool-btn" onclick="setAnnotationMode('point')" id="pointBtn">
+                        <span class="tool-icon">📍</span>
+                        <span class="tool-label">Point</span>
+                    </button>
                 </div>
+                
+                <!--<div class="manual-controls">
+                    <button class="btn-manual" onclick="duplicateLastAnnotation()" id="duplicateBtn">
+                        <span class="btn-icon">📋</span>
+                        <span class="btn-text">Duplicate Last</span>
+                    </button>
+                    
+                    <button class="btn-manual" onclick="propagateAnnotations()" id="propagateBtn">
+                        <span class="btn-icon">➡️</span>
+                        <span class="btn-text">Propagate</span>
+                    </button>
+                </div>-->
+                
+            </div>
+        </div>
 
-                <div class="panel">
-                    <h3>🔗 Inter-frame Constraints</h3>
-                    <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
-                        Selected: <span id="selectedKeyframes">None</span>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-size: 0.9em; color: #555;">From Keyframe:</label>
-                        <select id="fromKeyframe" class="constraint-input" onchange="updateInterFrameUI()">
-                            <option value="">Select keyframe...</option>
-                        </select>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-size: 0.9em; color: #555;">To Keyframe:</label>
-                        <select id="toKeyframe" class="constraint-input" onchange="updateInterFrameUI()">
-                            <option value="">Select keyframe...</option>
-                        </select>
-                    </div>
-                    <input type="text" class="constraint-input" placeholder="e.g., object_tracking, motion_smooth" id="interFrameConstraint">
-                    <button class="btn btn-primary" onclick="addInterFrameConstraint()" style="width: 100%; margin-top: 10px;">Add Constraint</button>
-                    <div id="interFrameConstraints"></div>
+        <!-- Constraints Tab -->
+        <div class="tab-panel" id="constraintsPanel">
+            <!-- Frame Constraints -->
+            <div class="detection-panel">
+                <h3>Frame Constraints</h3>
+                <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+                    Selected: <span id="intra-selected">None</span>
                 </div>
+                <div id="frameConstraints"></div>
+            </div>
 
+            <!-- Inter-frame Constraints -->
+            <div class="manual-annotation-panel">
+                <h3>Inter-frame Constraints</h3>
+                <div style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+                    Selected: <span id="selectedKeyframes">None</span>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 0.9em; color: #555;">From Keyframe:</label>
+                    <select id="fromKeyframe" class="constraint-input" onchange="updateInterFrameUI()">
+                        <option value="">Select keyframe...</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 0.9em; color: #555;">To Keyframe:</label>
+                    <select id="toKeyframe" class="constraint-input" onchange="updateInterFrameUI()">
+                        <option value="">Select keyframe...</option>
+                    </select>
+                </div>
+                <input type="text" class="constraint-input" placeholder="e.g., object_tracking, motion_smooth" id="interFrameConstraint">
+                <button class="btn btn-primary" onclick="addInterFrameConstraint()" style="width: 100%; margin-top: 10px;">Add Constraint</button>
+                <div id="interFrameConstraints"></div>
+            </div>
+        </div>
 
-                <div class="panel">
-                    <h3>📊 JSON Output</h3>
-                    <div id="jsonOutput" class="json-output">Load a video and add annotations...</div>
-                    <button class="btn btn-primary" onclick="copyToClipboard()" style="width: 100%; margin-top: 10px;">📋 Copy JSON</button>
+        <!-- Export Tab -->
+        <div class="tab-panel" id="exportPanel">
+            <!-- JSON Output -->
+            <div class="panel">
+                <h3>JSON Output</h3>
+                <div id="jsonOutput" class="json-output">Load a video and add annotations...</div>
+                <div class="export-controls">
+                    <button class="btn btn-primary" onclick="copyToClipboard()" style="width: 100%; margin-bottom: 8px;">📋 Copy JSON</button>
                 </div>
             </div>
+
+        </div>
+    </div>
+</div>
+
+
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="main.js"></script>
     <script src="canvas-manager.js"></script>
     <script src="video-controller.js"></script>
-    <script src="object-detection.js"></script>
 </body>
 </html>
