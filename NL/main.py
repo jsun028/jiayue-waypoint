@@ -11,18 +11,19 @@ def example_usage():
     
     # UDF registry
     registry = UDFRegistry(df)
-    
+
     # Load a sample spec
     spec = pickle.load(open("spec.pkl", "rb"))
-    print(spec)
+    print("spec: ", spec)
 
+    print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")
+    print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
+    
     compiler = QueryCompiler(registry, df)
     # Execute query with two-stage search
     results = compiler.execute_query(spec)
     print(results)
     
-    print("QueryCompiler initialized successfully with two-stage search implementation")
-    print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
 
 if __name__ == "__main__":
     example_usage()

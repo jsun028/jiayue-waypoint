@@ -34,9 +34,9 @@ class QueryCompiler:
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(object_assignments):
             # Debug: limit to first 2 assignments
-            if assignment_idx > 1:
-                print("  → Limiting to first assignments for testing")
-                break
+            # if assignment_idx > 1:
+            #     print("  → Limiting to first assignments for testing")
+            #     break
             print(f"\n[Assignment {assignment_idx + 1}/{len(object_assignments)}] {assignment}")
 
             # Find the time range where all assigned objects exist
@@ -154,7 +154,7 @@ class QueryCompiler:
                     'object_assignment': assignment,
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
-                    'time_range': (min_frame, max_frame),
+                    'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
                                      for alias in assignment.keys()},
                     'score_details': combination.get('score_details', {})
@@ -224,8 +224,6 @@ class QueryCompiler:
         
         # For each keyframe, scan all frames
         for kf_name, kf_spec in keyframes_dict.items():
-            if kf_name == 'k3':
-                continue
             frame_candidates = []
             print(f"    Scanning keyframe '{kf_name}' …")
             

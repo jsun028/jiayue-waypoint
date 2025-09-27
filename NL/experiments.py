@@ -2,7 +2,8 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from specs import QuerySpec
+from specs import QuerySpec, PredicateAtom, PredicateExpr
+from registry import GLOBAL_UDF_REGISTRY
 
 API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -12,14 +13,21 @@ MODEL = ChatOpenAI(
 )
 parser = PydanticOutputParser(pydantic_object=QuerySpec)
 
+
+AVAILABLE_UDFS = ", ".join(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
+
 SYSTEM = """You translate traffic scenario descriptions into a JSON spec for a query engine.
-- You must return ONLY JSON conforming to the provided schema.
+- Define keyframes as important moments across frames (salient scene states); use only needed to capture transitions/events.
+- Keyframe names: k1, k2, k3, ... in temporal order.
+- You must return ONLY JSON conforming to the provided schema. Do not include comments or explanations.
 - Use objects 'car1','car2',... unless told otherwise.
 - Use angles in degrees unless explicitly stated radians in 'TrajectorySpec.angle_rad'.
 - Prefer velocity_above(2.0..5.0) for "moving", velocity_below(2.0..3.0) for "stopped".
 - For "right turn", add a trajectory constraint with template='right_arc'.
-- Keyframe names: k1, k2, k3, ... in temporal order.
+- Allowed predicates are ONLY: {AVAILABLE_UDFS}, but you may propose a new UDF if the existing predicates are insufficient to describe the query.
 """
+
+
 
 FORMAT = """{format_instructions}"""
 
@@ -85,4 +93,37 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(format_instructions=parser.get_format_instructions())
 
-chain = prompt | MODEL | parser
+def semantic_checker(spec: QuerySpec) -> QuerySpec:
+    from registry import GLOBAL_UDF_REGISTRY
+    for kf in spec.keyframes:
+        atoms = collect_atoms(kf.where)  # flatten all PredicateAtom
+        for atom in atoms:
+            if atom.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
+                func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.type)
+                GLOBAL_UDF_REGISTRY.register_udf(atom.type, func)
+    return spec
+
+def collect_atoms(expr: PredicateExpr) -> list[PredicateAtom]:
+    if expr.op == "ATOM" and expr.atom:
+        return [expr.atom]
+    atoms = []
+    if expr.args:
+        for sub in expr.args:
+            atoms.extend(collect_atoms(sub))
+    return atoms
+
+
+
+# 1. Prompting
+prompt_chain = prompt | MODEL
+
+# 2. Parsing (syntactic verification only)
+parse_chain = PydanticOutputParser(pydantic_object=QuerySpec)
+
+# 3. Semantic checking
+semantic_chain = semantic_checker
+
+# 4. Full chain
+full_chain = prompt_chain | parse_chain | semantic_chain
+
+chain = full_chain

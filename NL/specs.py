@@ -1,15 +1,21 @@
 # specs.py
 from __future__ import annotations
-from pydantic import BaseModel, field_validator, Field
+from pydantic import BaseModel, field_validator, Field, model_validator
 from typing import List, Literal, Optional, Tuple, Dict, Union, Any
-from registry import UDFRegistry
+from registry import UDFRegistry, GLOBAL_UDF_REGISTRY
+import json
 
 
 class PredicateAtom(BaseModel):
     # TODO: can we connect this to UDFRegistry dynamically?
-    type: Literal["velocity_above", "velocity_below", "dist_within_two_obj",         
-            "speed_above", "speed_below",  "dist_apart",         
-            "within_bbox", "action" ]
+    # see semantic_checker in experiments.py.
+    # type: Literal[
+    #     "velocity_above", "velocity_below", 
+    #     "dist_within_two_obj", "dist_apart_two_obj", 
+    #     "is_approaching", "is_separating", 
+    #     "heading_diff_to"
+    # ]
+    type: str
     # lhs object alias used within the spec, e.g. "car1"
     obj: str
     # optional rhs target (for pairwise predicates)
@@ -74,3 +80,19 @@ class QuerySpec(BaseModel):
         names = [k.name for k in v]
         assert len(names) == len(set(names)), "Duplicate keyframe names"
         return v
+
+    
+    @model_validator(mode="after")
+    def kf_semantic_unique(self) -> "QuerySpec":
+        seen = {}
+        for kf in self.keyframes:
+            # compare semantic equivalence without 'name'
+            where_dict = kf.where.model_dump()
+            key = json.dumps(where_dict, sort_keys=True)  # stable comparison
+            if key in seen:
+                raise ValueError(
+                    f"Duplicate keyframe content detected: "
+                    f"{kf.name} is semantically identical to {seen[key]}"
+                )
+            seen[key] = kf.name
+        return self
