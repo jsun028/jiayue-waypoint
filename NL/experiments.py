@@ -97,7 +97,7 @@ prompt = ChatPromptTemplate.from_messages(
 ).partial(format_instructions=parser.get_format_instructions())
 
 def semantic_checker(spec: QuerySpec) -> QuerySpec:
-    from registry import GLOBAL_UDF_REGISTRY
+    from .registry import GLOBAL_UDF_REGISTRY
     for kf in spec.keyframes:
         atoms = collect_atoms(kf.where)  # flatten all PredicateAtom
         for atom in atoms:

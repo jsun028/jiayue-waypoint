@@ -121,11 +121,16 @@ def _json_dumps(data: dict) -> str:
 class SpecGenerator(dspy.Module):
     """Generate a raw JSON string spec using a single DSPy predictor."""
 
-    def __init__(self, temperature: float = 0.0):
+    def __init__(self, temperature: float = 0.0, verbose: bool = True):
         super().__init__()
         # Using a simple prompt → output signature keeps things explicit.
         self.generator = dspy.Predict("prompt -> spec_json")
         self.temperature = temperature
+        self.verbose = verbose
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(f"[DSPy][Generate] {message}")
 
     def _compose_prompt(self, nl_request: str, available_udfs: Iterable[str]) -> str:
         available = ", ".join(sorted(available_udfs)) or "(none)"
@@ -141,23 +146,36 @@ class SpecGenerator(dspy.Module):
 
     def forward(self, nl_request: str, available_udfs: Iterable[str]):
         prompt = self._compose_prompt(nl_request, available_udfs)
+        self._log("Submitting prompt to language model …")
         prediction = self.generator(prompt=prompt)
+        self._log("Received raw response from language model")
         spec_json = prediction.spec_json
         if isinstance(spec_json, dict):
             # Some LMs may already return parsed dicts, normalize to string.
             spec_json = _json_dumps(spec_json)
+            self._log("Converted structured response into JSON string")
         return spec_json
 
 
 class SpecSemanticChecker:
     """Mirror the semantic checker used in the LangChain pipeline."""
 
+    def __init__(self, verbose: bool = True):
+        self.verbose = verbose
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(f"[DSPy][Semantic] {message}")
+
     def __call__(self, spec: QuerySpec) -> QuerySpec:
+        self._log("Validating predicates against registry …")
         for keyframe in spec.keyframes:
             for atom in collect_atoms(keyframe.where):
                 if atom.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
+                    self._log(f"Auto-registering new predicate '{atom.type}'")
                     func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.type)
                     GLOBAL_UDF_REGISTRY.register_udf(atom.type, func)
+        self._log("Semantic validation complete")
         return spec
 
 
@@ -174,7 +192,15 @@ def collect_atoms(expr: PredicateExpr) -> list[PredicateAtom]:
 class SpecParser:
     """Parse JSON into `QuerySpec`, raising helpful errors."""
 
+    def __init__(self, verbose: bool = True):
+        self.verbose = verbose
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(f"[DSPy][Parse] {message}")
+
     def __call__(self, spec_json: str) -> QuerySpec:
+        self._log("Parsing JSON into QuerySpec …")
         try:
             raw = json.loads(spec_json)
         except json.JSONDecodeError as exc:
@@ -185,32 +211,44 @@ class SpecParser:
         except Exception as exc:  # noqa: BLE001
             raise ValueError(f"Generated spec failed schema validation: {exc}") from exc
 
+        self._log("Schema validation succeeded")
         return spec
 
 
 class NLToQuerySpecPipeline(dspy.Module):
     """High-level module wiring generation, parsing, and semantic checking."""
 
-    def __init__(self, *, temperature: float = 0.0):
+    def __init__(self, *, temperature: float = 0.0, verbose: bool = True):
         super().__init__()
-        self.generator = SpecGenerator(temperature=temperature)
-        self.parser = SpecParser()
-        self.semantic_checker = SpecSemanticChecker()
+        self.verbose = verbose
+        self.generator = SpecGenerator(temperature=temperature, verbose=verbose)
+        self.parser = SpecParser(verbose=verbose)
+        self.semantic_checker = SpecSemanticChecker(verbose=verbose)
+
+    def _log(self, message: str) -> None:
+        if self.verbose:
+            print(f"[DSPy][Pipeline] {message}")
 
     def forward(
         self,
         nl_request: str,
         available_udfs: Optional[Iterable[str]] = None,
     ) -> QuerySpec:
+        self._log("Starting NL → QuerySpec translation")
         available = (
             list(available_udfs)
             if available_udfs is not None
             else list(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
         )
 
+        self._log(f"Using {len(available)} predicates: {', '.join(sorted(available))}")
         raw_json = self.generator(nl_request=nl_request, available_udfs=available)
+        self._log("Generation complete, parsing …")
         spec = self.parser(raw_json)
-        return self.semantic_checker(spec)
+        self._log("Running semantic checks …")
+        validated = self.semantic_checker(spec)
+        self._log("Pipeline finished")
+        return validated
 
 
 def build_pipeline(*, temperature: float = 0.0) -> NLToQuerySpecPipeline:
@@ -219,10 +257,21 @@ def build_pipeline(*, temperature: float = 0.0) -> NLToQuerySpecPipeline:
     return NLToQuerySpecPipeline(temperature=temperature)
 
 
+def _mask_secret(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}…{value[-4:]}"
+
+
 def configure_lm(model: str, **kwargs) -> None:
     """Convenience wrapper around `dspy.configure` for LM setup."""
 
-    lm = dspy.LM(model=model, **kwargs)
+    display_kwargs = {k: (_mask_secret(v) if "key" in k.lower() else v) for k, v in kwargs.items()}
+    print(f"[DSPy] Configuring LM → model={model}, kwargs={display_kwargs}")
+
+    lm = dspy.LM(model=model, **kwargs, max_tokens=20_000)
     dspy.configure(lm=lm)
 
 
@@ -239,9 +288,11 @@ def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = No
 
     pipeline = pipeline or build_pipeline()
     available = GLOBAL_UDF_REGISTRY.get_all_udfs().keys()
+    print("[DSPy][Run] Executing pipeline with default configuration …")
     raw_json = pipeline.generator(nl_request=nl_request, available_udfs=available)
     spec = pipeline.parser(raw_json)
     spec = pipeline.semantic_checker(spec)
+    print("[DSPy][Run] Done")
     return PipelineResult(spec=spec, spec_json=raw_json)
 
 

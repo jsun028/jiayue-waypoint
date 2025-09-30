@@ -1,8 +1,16 @@
 import pandas as pd
 import numpy as np
 from itertools import product
-from registry import UDFRegistry
-from specs import PredicateAtom, PredicateExpr, KeyframeSpec, QuerySpec, AlwaysSpec, InterframeSpec, TrajectorySpec
+from .registry import UDFRegistry
+from .specs import (
+    PredicateAtom,
+    PredicateExpr,
+    KeyframeSpec,
+    QuerySpec,
+    AlwaysSpec,
+    InterframeSpec,
+    TrajectorySpec,
+)
 from typing import Dict, List, Tuple
 from df_utils import generate_object_assignments, find_common_time_range, resolve_object_alias
 from collections import defaultdict, Counter

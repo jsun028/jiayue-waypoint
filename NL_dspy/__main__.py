@@ -5,8 +5,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
+import sys
 
-from .pipeline import build_pipeline, configure_lm, run_pipeline
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv()
+
+if __package__ in {None, ""}:
+    pkg_root = pathlib.Path(__file__).resolve().parent
+    sys.path.append(str(pkg_root.parent))
+    from NL_dspy.pipeline import build_pipeline, configure_lm, run_pipeline  # type: ignore
+else:
+    from .pipeline import build_pipeline, configure_lm, run_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,9 +54,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    print("[DSPy][CLI] Initializing language model …")
     configure_lm(args.model, temperature=args.temperature, api_key=args.api_key)
+    print("[DSPy][CLI] Building pipeline …")
     pipeline = build_pipeline(temperature=args.temperature)
 
+    print("[DSPy][CLI] Running pipeline …")
     result = run_pipeline(args.nl, pipeline)
 
     print("=== QuerySpec (pydantic) ===")
