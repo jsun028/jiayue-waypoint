@@ -22,6 +22,7 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Prefer velocity_above(2.0..5.0) for "moving" and velocity_below(2.0..3.0) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
 - Allowed predicates: {available_udfs}. You may propose a new predicate only if absolutely required.
+- Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
 """
 
 
@@ -112,6 +113,10 @@ FEWSHOT_JSON = {
             "deviation_strength": 0.0,
         },
     ],
+    "explanation": (
+        "car1 and car2 begin opposed while moving, then car1 slows to set up a right turn, "
+        "and over ~3s completes a right-arc trajectory to align 90° from car2."
+    ),
 }
 
 

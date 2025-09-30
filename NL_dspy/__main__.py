@@ -19,9 +19,9 @@ if load_dotenv is not None:
 if __package__ in {None, ""}:
     pkg_root = pathlib.Path(__file__).resolve().parent
     sys.path.append(str(pkg_root.parent))
-    from NL_dspy.pipeline import build_pipeline, configure_lm, run_pipeline  # type: ignore
+    from NL_dspy.pipeline import build_pipeline, configure_lm, run_pipeline, write_spec_pickle # type: ignore
 else:
-from .pipeline import build_pipeline, configure_lm, run_pipeline, write_spec_pickle
+    from .pipeline import build_pipeline, configure_lm, run_pipeline, write_spec_pickle
 
 
 def parse_args() -> argparse.Namespace:

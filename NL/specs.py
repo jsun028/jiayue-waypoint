@@ -73,6 +73,7 @@ class QuerySpec(BaseModel):
     objects: ObjectsSpec
     keyframes: List[KeyframeSpec]
     constraints: List[ConstraintSpec]
+    explanation: Optional[str] = None
 
     @field_validator("keyframes")
     @classmethod
@@ -124,3 +125,5 @@ def print_spec_details(spec: QuerySpec):
     #             )
     #         seen[key] = kf.name
     #     return self
+
+    # no validation for explanation; human-readable only
