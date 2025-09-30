@@ -244,3 +244,4 @@ def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = No
     spec = pipeline.semantic_checker(spec)
     return PipelineResult(spec=spec, spec_json=raw_json)
 
+
