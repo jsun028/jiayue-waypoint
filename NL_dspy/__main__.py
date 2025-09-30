@@ -21,7 +21,7 @@ if __package__ in {None, ""}:
     sys.path.append(str(pkg_root.parent))
     from NL_dspy.pipeline import build_pipeline, configure_lm, run_pipeline  # type: ignore
 else:
-    from .pipeline import build_pipeline, configure_lm, run_pipeline
+from .pipeline import build_pipeline, configure_lm, run_pipeline, write_spec_pickle
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,6 +48,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to write the raw spec JSON.",
     )
+    parser.add_argument(
+        "--dump-pickle",
+        default=None,
+        help="Optional path to write the QuerySpec pickle (compatible with NL/main.py).",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +77,9 @@ def main() -> None:
     else:
         print("\n=== Raw JSON ===")
         print(json.dumps(json.loads(result.spec_json), indent=2))
+
+    if args.dump_pickle:
+        write_spec_pickle(result.spec, args.dump_pickle)
 
 
 if __name__ == "__main__":

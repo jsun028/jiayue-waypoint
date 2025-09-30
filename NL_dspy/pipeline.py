@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -294,5 +295,13 @@ def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = No
     spec = pipeline.semantic_checker(spec)
     print("[DSPy][Run] Done")
     return PipelineResult(spec=spec, spec_json=raw_json)
+
+
+def write_spec_pickle(spec: QuerySpec, path: str) -> None:
+    """Persist a QuerySpec object to disk so NL/main.py can load it."""
+
+    with open(path, "wb") as handle:
+        pickle.dump(spec, handle)
+    print(f"[DSPy][Persist] Wrote pickle spec to {path}")
 
 
