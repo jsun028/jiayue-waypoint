@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import pickle
 from dataclasses import dataclass
@@ -21,7 +22,8 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Use degrees for angles unless NL explicitly requests radians.
 - Prefer velocity_above(2.0..5.0) for "moving" and velocity_below(2.0..3.0) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
-- Allowed predicates: {available_udfs}. You may propose a new predicate only if absolutely required.
+- Allowed predicates (name and signature):{available_udfs}
+- You may propose a new predicate only if absolutely required.
 - Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
 """
 
@@ -124,6 +126,59 @@ def _json_dumps(data: dict) -> str:
     return json.dumps(data, indent=2, sort_keys=True)
 
 
+def _udf_name(candidate: object) -> str:
+    """Best-effort extraction of a predicate name from user-provided input."""
+    if isinstance(candidate, str):
+        return candidate
+    return getattr(candidate, "__name__", "<anonymous>")
+
+
+def _resolve_udf_callable(name: str, candidate: object):
+    """Locate the callable implementing a predicate, if available."""
+    registry_funcs = GLOBAL_UDF_REGISTRY.get_all_udfs()
+    func = None
+
+    if callable(candidate):
+        func = candidate
+    else:
+        func = registry_funcs.get(name)
+
+    return func
+
+
+def _format_udf_info(name: str, candidate: object) -> str:
+    """Return docstring-based summary for prompt conditioning."""
+    func = _resolve_udf_callable(name, candidate)
+
+    if func is None:
+        return name
+
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        signature = "(…)"
+
+    doc_raw = func.__doc__ or ""
+    doc_lines = [line.rstrip() for line in doc_raw.strip().splitlines() if line.strip()]
+    summary = f"{name}{signature}"
+    if doc_lines:
+        summary += "\n    " + "\n    ".join(doc_lines)
+    return summary
+
+
+def _format_available_udfs_for_prompt(available_udfs: Iterable[object]) -> list[str]:
+    """Normalize UDF inputs to unique, alphabetized signature strings."""
+    seen = set()
+    formatted = []
+    for item in available_udfs:
+        name = _udf_name(item)
+        if name in seen:
+            continue
+        seen.add(name)
+        formatted.append(_format_udf_info(name, item))
+    return sorted(formatted)
+
+
 class SpecGenerator(dspy.Module):
     """Generate a raw JSON string spec using a single DSPy predictor."""
 
@@ -139,7 +194,12 @@ class SpecGenerator(dspy.Module):
             print(f"[DSPy][Generate] {message}")
 
     def _compose_prompt(self, nl_request: str, available_udfs: Iterable[str]) -> str:
-        available = ", ".join(sorted(available_udfs)) or "(none)"
+        # TODO: We can probably make this an optimizer task (like GEPA)
+        formatted = sorted(available_udfs)
+        if formatted:
+            available = "\n  - " + "\n  - ".join(formatted)
+        else:
+            available = " (none)"
         header = PROMPT_HEADER.format(available_udfs=available)
         fewshot = _json_dumps(FEWSHOT_JSON)
         return (
@@ -152,7 +212,7 @@ class SpecGenerator(dspy.Module):
 
     def forward(self, nl_request: str, available_udfs: Iterable[str]):
         prompt = self._compose_prompt(nl_request, available_udfs)
-        self._log("Submitting prompt to language model …")
+        self._log("Submitting prompt to language model...\n\n"+prompt)
         prediction = self.generator(prompt=prompt)
         self._log("Received raw response from language model")
         spec_json = prediction.spec_json
@@ -241,14 +301,21 @@ class NLToQuerySpecPipeline(dspy.Module):
         available_udfs: Optional[Iterable[str]] = None,
     ) -> QuerySpec:
         self._log("Starting NL → QuerySpec translation")
-        available = (
-            list(available_udfs)
-            if available_udfs is not None
-            else list(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
-        )
+        if available_udfs is None:
+            requested_udfs: list[object] = list(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
+        else:
+            requested_udfs = list(available_udfs)
 
-        self._log(f"Using {len(available)} predicates: {', '.join(sorted(available))}")
-        raw_json = self.generator(nl_request=nl_request, available_udfs=available)
+        available_names = sorted({_udf_name(item) for item in requested_udfs})
+        available_for_prompt = _format_available_udfs_for_prompt(requested_udfs)
+
+        self._log(
+            f"Using {len(available_names)} predicates: {', '.join(available_names)}"
+        )
+        raw_json = self.generator(
+            nl_request=nl_request,
+            available_udfs=available_for_prompt,
+        )
         self._log("Generation complete, parsing …")
         spec = self.parser(raw_json)
         self._log("Running semantic checks …")
@@ -293,7 +360,9 @@ def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = No
     """Utility for scripts/tests to obtain both the spec object and JSON string."""
 
     pipeline = pipeline or build_pipeline()
-    available = GLOBAL_UDF_REGISTRY.get_all_udfs().keys()
+    available = _format_available_udfs_for_prompt(
+        GLOBAL_UDF_REGISTRY.get_all_udfs().keys()
+    )
     print("[DSPy][Run] Executing pipeline with default configuration …")
     raw_json = pipeline.generator(nl_request=nl_request, available_udfs=available)
     spec = pipeline.parser(raw_json)

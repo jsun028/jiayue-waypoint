@@ -2,6 +2,7 @@
 
 import dspy
 
+# TODO: Eventually move over to signature approach
 
 class NLToSpecSignature(dspy.Signature):
     """Translate a natural language description into a structured query spec JSON."""
