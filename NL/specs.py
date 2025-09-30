@@ -70,10 +70,10 @@ class ObjectsSpec(BaseModel):
     aliases: Dict[str, Dict[str, Any]]   # alias -> {"class":..., "idx":...}
 
 class QuerySpec(BaseModel):
+    explanation: Optional[str] = None
     objects: ObjectsSpec
     keyframes: List[KeyframeSpec]
     constraints: List[ConstraintSpec]
-    explanation: Optional[str] = None
 
     @field_validator("keyframes")
     @classmethod
