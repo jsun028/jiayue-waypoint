@@ -2,8 +2,10 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
 from specs import QuerySpec, PredicateAtom, PredicateExpr
 from registry import GLOBAL_UDF_REGISTRY
+from registry_utils import _format_available_udfs_for_prompt
 
 API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -15,8 +17,9 @@ parser = PydanticOutputParser(pydantic_object=QuerySpec)
 
 
 AVAILABLE_UDFS = ", ".join(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
+UDF_DOCS = "\n".join(_format_available_udfs_for_prompt(GLOBAL_UDF_REGISTRY.get_all_udfs().keys()))
 
-SYSTEM = """You translate traffic scenario descriptions into a JSON spec for a query engine.
+SYSTEM = f"""You translate traffic scenario descriptions into a JSON spec for a query engine.
 - Define keyframes as important moments across frames (salient scene states); use only needed to capture transitions/events.
 - Keyframe names: k1, k2, k3, ... in temporal order.
 - You must return ONLY JSON conforming to the provided schema. Do not include comments or explanations.
@@ -25,9 +28,9 @@ SYSTEM = """You translate traffic scenario descriptions into a JSON spec for a q
 - Prefer velocity_above(2.0..5.0) for "moving", velocity_below(2.0..3.0) for "stopped".
 - For "right turn", add a trajectory constraint with template='right_arc'.
 - Allowed predicates are ONLY: {AVAILABLE_UDFS}, but you may propose a new UDF if the existing predicates are insufficient to describe the query.
+- Docs for the UDFs are provided below:
+{UDF_DOCS}
 """
-
-
 
 FORMAT = """{format_instructions}"""
 
