@@ -5,21 +5,33 @@ from registry import UDFRegistry
 from specs import PredicateAtom, PredicateExpr, KeyframeSpec, QuerySpec, AlwaysSpec, InterframeSpec, TrajectorySpec
 from typing import Dict, List, Tuple
 from df_utils import generate_object_assignments, find_common_time_range, resolve_object_alias
-
+from collections import defaultdict, Counter
+from optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame):
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, metadata_path: str):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
         self.all_udfs = registry.get_all_udfs()
+        self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
         
     def seconds_to_frames(self, seconds: float) -> int:
         """Convert seconds to frame count"""
         return int(seconds * self.fps)
     
-    def execute_query(self, query_spec: QuerySpec) -> List[Dict]:
-        """Execute the full query specification using two-stage search"""
+    def execute_query(self, query_spec: QuerySpec, estimation_mode: bool = False) -> List[Dict]:
+        """Execute the query specification.
+        """
+
+        if estimation_mode:
+            results = {}
+            for kf in query_spec.keyframes:
+                est = self.sel_int.estimate_keyframe_selectivity(kf)
+                sel = float(est["selectivity"])
+                results[kf.name] = sel
+                print(f"[Keyframe {kf.name}] estimated selectivity = {sel:.4f}")
+            return results
         
         results = []
         
@@ -53,9 +65,9 @@ class QueryCompiler:
             # ------------------------------------------------------------------
             print("  [Stage 1] Collecting per‑KF candidates …")
             candidate_frames = self.stage1_per_keyframe_scan(
-                keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
-            )
-            
+                keyframes_dict, query_spec.constraints, assignment,
+                min_frame, max_frame)
+
             # Print candidate statistics
             for kf_name in sorted(candidate_frames.keys()):
                 lst = candidate_frames[kf_name]
@@ -63,6 +75,7 @@ class QueryCompiler:
                 if lst:
                     frame_indices = sorted(set([x[0] for x in lst]))
                     print(f"      frame_idx: {frame_indices}")
+
             
             # ------------------------------------------------------------------
             #  Stage 2 – evaluate combinations
@@ -227,8 +240,10 @@ class QueryCompiler:
             frame_candidates = []
             print(f"    Scanning keyframe '{kf_name}' …")
             
-            # Scan each frame in the valid range
-            for frame_idx in range(min_frame, max_frame + 1):
+            frame_indices = range(min_frame, max_frame + 1)
+
+            # Scan selected frames only
+            for frame_idx in frame_indices:
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
                 # Single frame window by default
