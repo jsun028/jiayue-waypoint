@@ -1,32 +1,57 @@
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple, Callable
 import os
+from typing import Callable, Dict, Tuple
+import numpy as np
+import pandas as pd
+
 
 class UDFRegistry:
-    def __init__(self, df: pd.DataFrame):
+    _BASE_FUNCTION_NAMES = (
+        'dist_within_two_obj',
+        'dist_apart_two_obj',
+        'velocity_above',
+        'velocity_below',
+        'is_approaching',
+        'is_separating',
+        'heading_diff_to',
+    )
+
+    _GLOBAL_FUNCTIONS: Dict[str, Callable] = {}
+
+    def __init__(self, df: pd.DataFrame | None):
         self.df = df
+        self._ensure_global_functions()
         self.udf_registry = self._build_udf_registry()
 
+    @classmethod
+    def _ensure_global_functions(cls) -> None:
+        """
+        Ensures that the global functions are set up and only set up once.
+        Do this at class level so that global functions are truly global.
+        """
+        if cls._GLOBAL_FUNCTIONS:
+            return
+        for name in cls._BASE_FUNCTION_NAMES:
+            cls._GLOBAL_FUNCTIONS[name] = getattr(cls, name)
+
     def _build_udf_registry(self) -> Dict[str, Callable]:
-        """Build registry of available UDFs"""
-        return {
-            'dist_within_two_obj': self.dist_within_two_obj,
-            'dist_apart_two_obj': self.dist_apart_two_obj,
-            'velocity_above': self.velocity_above,
-            'velocity_below': self.velocity_below,
-            'is_approaching': self.is_approaching,
-            'is_separating': self.is_separating,
-            'heading_diff_to': self.heading_diff_to,
-        }
+        """Build registry of available UDFs (names stay in sync globally)."""
+        registry: Dict[str, Callable] = {}
+        for name, func in self._GLOBAL_FUNCTIONS.items():
+            registry[name] = func.__get__(self, self.__class__)
+        return registry
     
     def get_all_udfs(self) -> Dict[str, Callable]:
         """Return the current UDF registry"""
         return self.udf_registry
     
     def register_udf(self, name: str, func: Callable):
-        """Dynamically register a new UDF"""
-        self.udf_registry[name] = func
+        """Dynamically register a new UDF and propagate to future instances."""
+        # If we were handed a bound method, recover the underlying function.
+        if hasattr(func, "__self__") and getattr(func, "__self__", None) is not None:  # pragma: no cover - defensive
+            func = func.__func__  # type: ignore[attr-defined]
+
+        self._GLOBAL_FUNCTIONS[name] = func
+        self.udf_registry[name] = func.__get__(self, self.__class__)
     
     def autogen_udf(self, name: str) -> Callable:
         print(f"[AUTO-GEN] Registering new predicate UDF: '{name}'")
@@ -58,7 +83,18 @@ def {name}(*args, **kwargs) -> float:
     
     # UDF Implementations
     def velocity_above(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
-        """Check if object velocity is above threshold in given frame window"""
+        """Fraction of frames where speed exceeds `velocity`.
+
+        Args:
+            object_id: Track identifier (`track_id`).
+            velocity: Minimum speed threshold.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that speed > `velocity`; 0.0 if no frames.
+
+        Needs columns `track_id`, `frame_index`, `vel_x`, `vel_y`.
+        """
         start_frame, end_frame = frame_window
         
         # Filter data for the object in the frame window
@@ -79,7 +115,18 @@ def {name}(*args, **kwargs) -> float:
         return above_threshold.mean()
     
     def velocity_below(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
-        """Check if object velocity is below threshold in given frame window"""
+        """Fraction of frames where speed ≤ `velocity`.
+
+        Args:
+            object_id: Track identifier (`track_id`).
+            velocity: Maximum speed threshold.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that speed ≤ `velocity`; 0.0 if no frames.
+
+        Needs columns `track_id`, `frame_index`, `vel_x`, `vel_y`.
+        """
         start_frame, end_frame = frame_window
         
         # Filter data for the object in the frame window
@@ -100,7 +147,19 @@ def {name}(*args, **kwargs) -> float:
         return below_threshold.mean()
 
     def dist_within_two_obj(self, oid1: int, oid2: int, distance: float, frame_window: Tuple[int, int]) -> pd.Series:
-        """Check if two objects are within distance threshold in given frame window"""
+        """Fraction of shared frames where distance ≤ `distance`.
+
+        Args:
+            oid1: First track identifier.
+            oid2: Second track identifier.
+            distance: Maximum separation allowed.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that objects are within `distance`; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`.
+        """
         start_frame, end_frame = frame_window
         
         # Filter data for both objects in the frame window
@@ -130,6 +189,19 @@ def {name}(*args, **kwargs) -> float:
         return within_distance.mean()
 
     def dist_apart_two_obj(self, oid1: int, oid2: int, min_dist: float, frame_window: Tuple[int, int]) -> float:
+        """Fraction of shared frames where distance ≥ `min_dist`.
+
+        Args:
+            oid1: First track identifier.
+            oid2: Second track identifier.
+            min_dist: Minimum separation required.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that distance ≥ `min_dist`; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`.
+        """
         start_frame, end_frame = frame_window
         
         # Filter data for both objects in the frame window
@@ -160,6 +232,18 @@ def {name}(*args, **kwargs) -> float:
 
     
     def is_approaching(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
+        """Fraction of shared frames where relative motion closes distance.
+
+        Args:
+            oid1: Reference track identifier.
+            oid2: Moving track identifier.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that dot(rel_pos, rel_vel) < 0; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `vel_x`, `vel_y`.
+        """
         start, end = frame_window
         df_filtered = self.df[self.df['frame_index'].between(start, end)]
 
@@ -177,6 +261,18 @@ def {name}(*args, **kwargs) -> float:
         return (dot < 0).astype(float).mean()
 
     def is_separating(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
+        """Fraction of shared frames where relative motion increases distance.
+
+        Args:
+            oid1: Reference track identifier.
+            oid2: Moving track identifier.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that dot(rel_pos, rel_vel) > 0; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `vel_x`, `vel_y`.
+        """
         start, end = frame_window
         df_filtered = self.df[self.df['frame_index'].between(start, end)]
 
@@ -194,6 +290,20 @@ def {name}(*args, **kwargs) -> float:
         return (dot > 0).astype(float).mean()
 
     def heading_diff_to(self, oid1: int, oid2: int, expected_deg: float, tol_deg: float, frame_window: Tuple[int,int]) -> float:
+        """Fraction of shared frames where heading gap ≈ `expected_deg`.
+
+        Args:
+            oid1: Reference track identifier.
+            oid2: Comparison track identifier.
+            expected_deg: Target absolute heading difference in degrees.
+            tol_deg: Allowed tolerance around the target in degrees.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `heading_x`, `heading_y`.
+        """
         start, end = frame_window
         df_filtered = self.df[self.df['frame_index'].between(start, end)]
 
@@ -211,7 +321,6 @@ def {name}(*args, **kwargs) -> float:
         
 
         return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
-
 
 ########################################################
 GLOBAL_UDF_REGISTRY = UDFRegistry(df=None)
