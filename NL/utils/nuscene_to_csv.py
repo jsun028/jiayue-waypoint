@@ -31,44 +31,177 @@ def quaternion_to_yaw(quat: List[float]) -> float:
     return yaw
 
 
-def calculate_velocities(positions: np.ndarray, dt: float = 0.5) -> np.ndarray:
+def smooth_velocities(velocities: np.ndarray, window_size: int = 3) -> np.ndarray:
     """
-    Calculate velocities from positions.
+    Apply moving average smoothing to velocities to reduce noise.
+    
+    Args:
+        velocities: Nx2 array of velocities
+        window_size: Size of moving average window (must be odd)
+        
+    Returns:
+        Smoothed velocities
+    """
+    if len(velocities) < window_size:
+        return velocities
+    
+    if window_size % 2 == 0:
+        window_size += 1  # Ensure odd window size
+    
+    smoothed = np.zeros_like(velocities)
+    half_window = window_size // 2
+    
+    for i in range(len(velocities)):
+        start_idx = max(0, i - half_window)
+        end_idx = min(len(velocities), i + half_window + 1)
+        
+        # Use available data for smoothing
+        window_data = velocities[start_idx:end_idx]
+        smoothed[i] = np.mean(window_data, axis=0)
+    
+    return smoothed
+
+
+def calculate_velocities(positions: np.ndarray, timestamps: np.ndarray = None, 
+                        dt: float = 0.5, max_velocity: float = 50.0) -> np.ndarray:
+    """
+    Calculate velocities from positions with proper timestamp handling.
     
     Args:
         positions: Nx2 array of [x, y] positions
-        dt: Time step between positions
+        timestamps: N array of timestamps in seconds (optional)
+        dt: Default time step between positions if timestamps not provided
+        max_velocity: Maximum allowed velocity in m/s for validation
         
     Returns:
         Nx2 array of velocities [vx, vy]
     """
-    if len(positions) > 1:
-        prepend_pos = positions[0] - (positions[1] - positions[0])
-        velocities = np.diff(positions, axis=0, prepend=prepend_pos[np.newaxis, :]) / dt
-    else:
+    if len(positions) < 2:
         # Single frame - velocity is zero
-        velocities = np.zeros((len(positions), 2))
+        return np.zeros((len(positions), 2))
+    
+    velocities = np.zeros_like(positions)
+    
+    if timestamps is not None and len(timestamps) == len(positions):
+        # Use actual timestamps for velocity calculation
+        for i in range(len(positions)):
+            if i == 0:
+                # First frame: use velocity between first and second frames
+                if len(positions) > 1:
+                    dt_actual = timestamps[1] - timestamps[0]
+                    if dt_actual > 0:
+                        velocities[i] = (positions[1] - positions[0]) / dt_actual
+            elif i == len(positions) - 1:
+                # Last frame: use velocity between second-to-last and last frames
+                dt_actual = timestamps[i] - timestamps[i-1]
+                if dt_actual > 0:
+                    velocities[i] = (positions[i] - positions[i-1]) / dt_actual
+            else:
+                # Middle frames: use central difference for better accuracy
+                dt_prev = timestamps[i] - timestamps[i-1]
+                dt_next = timestamps[i+1] - timestamps[i]
+                if dt_prev > 0 and dt_next > 0:
+                    # Central difference: (pos[i+1] - pos[i-1]) / (t[i+1] - t[i-1])
+                    velocities[i] = (positions[i+1] - positions[i-1]) / (dt_prev + dt_next)
+    else:
+        # Fallback to uniform time step
+        for i in range(len(positions)):
+            if i == 0:
+                # First frame: forward difference
+                velocities[i] = (positions[1] - positions[0]) / dt
+            elif i == len(positions) - 1:
+                # Last frame: backward difference
+                velocities[i] = (positions[i] - positions[i-1]) / dt
+            else:
+                # Middle frames: central difference
+                velocities[i] = (positions[i+1] - positions[i-1]) / (2 * dt)
+    
+    # Validate velocities (remove unrealistic values)
+    velocity_magnitudes = np.linalg.norm(velocities, axis=1)
+    invalid_mask = velocity_magnitudes > max_velocity
+    
+    if np.any(invalid_mask):
+        print(f"Warning: Found {np.sum(invalid_mask)} frames with velocity > {max_velocity} m/s")
+        # Set invalid velocities to zero or interpolate from neighbors
+        for i in np.where(invalid_mask)[0]:
+            if i > 0 and i < len(velocities) - 1:
+                # Interpolate from neighbors
+                velocities[i] = (velocities[i-1] + velocities[i+1]) / 2
+            else:
+                # Set to zero for edge cases
+                velocities[i] = np.zeros(2)
     
     return velocities
 
 
-def calculate_accelerations(velocities: np.ndarray, dt: float = 0.5) -> np.ndarray:
+def calculate_accelerations(velocities: np.ndarray, timestamps: np.ndarray = None,
+                           dt: float = 0.5, max_acceleration: float = 20.0) -> np.ndarray:
     """
-    Calculate accelerations from velocities.
+    Calculate accelerations from velocities with proper timestamp handling.
     
     Args:
         velocities: Nx2 array of [vx, vy] velocities
-        dt: Time step between velocities
+        timestamps: N array of timestamps in seconds (optional)
+        dt: Default time step between velocities if timestamps not provided
+        max_acceleration: Maximum allowed acceleration in m/s² for validation
         
     Returns:
         Nx2 array of accelerations [ax, ay]
     """
-    if len(velocities) > 1:
-        prepend_vel = velocities[0] - (velocities[1] - velocities[0])
-        accelerations = np.diff(velocities, axis=0, prepend=prepend_vel[np.newaxis, :]) / dt
-    else:
+    if len(velocities) < 2:
         # Single frame - acceleration is zero
-        accelerations = np.zeros((len(velocities), 2))
+        return np.zeros((len(velocities), 2))
+    
+    accelerations = np.zeros_like(velocities)
+    
+    if timestamps is not None and len(timestamps) == len(velocities):
+        # Use actual timestamps for acceleration calculation
+        for i in range(len(velocities)):
+            if i == 0:
+                # First frame: use acceleration between first and second frames
+                if len(velocities) > 1:
+                    dt_actual = timestamps[1] - timestamps[0]
+                    if dt_actual > 0:
+                        accelerations[i] = (velocities[1] - velocities[0]) / dt_actual
+            elif i == len(velocities) - 1:
+                # Last frame: use acceleration between second-to-last and last frames
+                dt_actual = timestamps[i] - timestamps[i-1]
+                if dt_actual > 0:
+                    accelerations[i] = (velocities[i] - velocities[i-1]) / dt_actual
+            else:
+                # Middle frames: use central difference for better accuracy
+                dt_prev = timestamps[i] - timestamps[i-1]
+                dt_next = timestamps[i+1] - timestamps[i]
+                if dt_prev > 0 and dt_next > 0:
+                    # Central difference: (vel[i+1] - vel[i-1]) / (t[i+1] - t[i-1])
+                    accelerations[i] = (velocities[i+1] - velocities[i-1]) / (dt_prev + dt_next)
+    else:
+        # Fallback to uniform time step
+        for i in range(len(velocities)):
+            if i == 0:
+                # First frame: forward difference
+                accelerations[i] = (velocities[1] - velocities[0]) / dt
+            elif i == len(velocities) - 1:
+                # Last frame: backward difference
+                accelerations[i] = (velocities[i] - velocities[i-1]) / dt
+            else:
+                # Middle frames: central difference
+                accelerations[i] = (velocities[i+1] - velocities[i-1]) / (2 * dt)
+    
+    # Validate accelerations (remove unrealistic values)
+    acceleration_magnitudes = np.linalg.norm(accelerations, axis=1)
+    invalid_mask = acceleration_magnitudes > max_acceleration
+    
+    if np.any(invalid_mask):
+        print(f"Warning: Found {np.sum(invalid_mask)} frames with acceleration > {max_acceleration} m/s²")
+        # Set invalid accelerations to zero or interpolate from neighbors
+        for i in np.where(invalid_mask)[0]:
+            if i > 0 and i < len(accelerations) - 1:
+                # Interpolate from neighbors
+                accelerations[i] = (accelerations[i-1] + accelerations[i+1]) / 2
+            else:
+                # Set to zero for edge cases
+                accelerations[i] = np.zeros(2)
     
     return accelerations
 
@@ -124,6 +257,7 @@ def process_agent_trajectory(
     instances: Dict,
     categories: Dict,
     frame_idx_dict: Dict[str, int],
+    samples: Dict,
     track_id: int,
 ) -> pd.DataFrame:
     """
@@ -147,12 +281,17 @@ def process_agent_trajectory(
         
         frame_idx = frame_idx_dict[sample_token]
         
+        # Get timestamp from sample data
+        sample = samples[sample_token]
+        timestamp = sample["timestamp"] / 1e6  # Convert microseconds to seconds
+        
         agent_records.append({
             'frame_idx': frame_idx,
             'position': np.array(ann["translation"][:2]),
             'yaw': quaternion_to_yaw(ann["rotation"]),
             'size': ann["size"],
             'instance_token': ann["instance_token"],
+            'timestamp': timestamp,
         })
         
         curr_ann_token = ann["next"]
@@ -173,17 +312,25 @@ def process_agent_trajectory(
     frame_indices = np.array([r['frame_idx'] for r in agent_records])
     positions = np.array([r['position'] for r in agent_records])
     yaws_arr = np.array([r['yaw'] for r in agent_records])
+    timestamps = np.array([r['timestamp'] for r in agent_records])
+
+    if len(timestamps) == 0:
+        print(f"Warning: No timestamps found for agent {track_id}")
     
-    # Calculate velocities and accelerations
-    velocities = calculate_velocities(positions)
-    accelerations = calculate_accelerations(velocities)
+    # Calculate velocities and accelerations using actual timestamps
+    velocities = calculate_velocities(positions, timestamps)
+    velocities = smooth_velocities(velocities)  # Apply smoothing
+    accelerations = calculate_accelerations(velocities, timestamps)
     
     # Calculate bounding box corners (bird's-eye view)
+    # Note: sizes = [width, length, height] in NuScenes format
     width, length, height = sizes
     x_centers = positions[:, 0]
     y_centers = positions[:, 1]
     
     # For axis-aligned bounding box: x1, y1 = min corner, x2, y2 = max corner
+    # These represent the axis-aligned bounding box that contains the rotated vehicle
+    # The actual vehicle orientation is stored in agent_yaw
     x1 = x_centers - length / 2
     y1 = y_centers - width / 2
     x2 = x_centers + length / 2
@@ -303,6 +450,7 @@ def process_scene(
                 instances,
                 categories,
                 frame_idx_dict,
+                samples,
                 global_track_id
             )
             

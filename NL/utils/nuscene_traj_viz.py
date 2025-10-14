@@ -63,23 +63,82 @@ def plot_bev_snapshot(
         class_name = row['class_name']
         color = class_colors.get(class_name, 'gray')
         
-        # Draw bounding box
-        x1, y1, x2, y2 = row['x1'], row['y1'], row['x2'], row['y2']
-        width = x2 - x1
-        height = y2 - y1
+        # Calculate rotated bounding box corners
+        center_x = (row['x1'] + row['x2']) / 2
+        center_y = (row['y1'] + row['y2']) / 2
         
-        rect = patches.Rectangle(
-            (x1, y1), width, height,
+        # Infer vehicle dimensions from bounding box
+        # The bounding box (x1,y1,x2,y2) represents the axis-aligned box containing the rotated vehicle
+        bbox_width = row['x2'] - row['x1']   # Width of axis-aligned bounding box
+        bbox_height = row['y2'] - row['y1']  # Height of axis-aligned bounding box
+        
+        # Get vehicle yaw angle
+        yaw = row['agent_yaw']
+        
+        # Simple heuristic: assume typical vehicle proportions
+        # Most vehicles have length/width ratio between 2:1 and 3:1
+        # We'll use the larger dimension as length and smaller as width
+        if bbox_width > bbox_height:
+            # Bounding box is wider than tall
+            length = bbox_width
+            width = bbox_height
+        else:
+            # Bounding box is taller than wide
+            length = bbox_height
+            width = bbox_width
+        
+        # Apply reasonable constraints based on vehicle class
+        if class_name == 'pedestrian':
+            length = min(length, 2.0)  # Pedestrians are typically < 2m
+            width = min(width, 1.0)   # Pedestrians are typically < 1m wide
+        elif class_name == 'bicycle':
+            length = min(length, 3.0)  # Bicycles are typically < 3m
+            width = min(width, 1.5)   # Bicycles are typically < 1.5m wide
+        elif class_name == 'motorcycle':
+            length = min(length, 3.0)  # Motorcycles are typically < 3m
+            width = min(width, 1.5)   # Motorcycles are typically < 1.5m wide
+        else:  # vehicle
+            length = min(length, 6.0)  # Cars are typically < 6m
+            width = min(width, 2.5)    # Cars are typically < 2.5m wide
+        
+        # Ensure minimum reasonable dimensions
+        length = max(length, 1.0)  # Minimum 1m length
+        width = max(width, 0.5)    # Minimum 0.5m width
+        
+        # Calculate half-dimensions
+        half_length = length / 2
+        half_width = width / 2
+        
+        # Define the four corners of the bounding box in local coordinates
+        # (relative to vehicle center, before rotation)
+        corners_local = np.array([
+            [-half_length, -half_width],  # Rear left
+            [half_length, -half_width],   # Front left  
+            [half_length, half_width],    # Front right
+            [-half_length, half_width]   # Rear right
+        ])
+        
+        # Rotate corners by yaw angle
+        cos_yaw = np.cos(yaw)
+        sin_yaw = np.sin(yaw)
+        rotation_matrix = np.array([[cos_yaw, -sin_yaw], [sin_yaw, cos_yaw]])
+        
+        corners_rotated = corners_local @ rotation_matrix.T
+        
+        # Translate to world coordinates
+        corners_world = corners_rotated + np.array([center_x, center_y])
+        
+        # Create rotated rectangle polygon
+        rect = patches.Polygon(
+            corners_world, closed=True,
             linewidth=2, edgecolor=color, facecolor='none', alpha=0.8
         )
         ax.add_patch(rect)
         
-        # Draw heading arrow
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
-        arrow_length = max(width, height) * 0.5
-        dx = arrow_length * np.cos(row['agent_yaw'])
-        dy = arrow_length * np.sin(row['agent_yaw'])
+        # Draw heading arrow (pointing in the direction of vehicle heading)
+        arrow_length = max(half_length, half_width) * 0.8  # Scale based on vehicle size
+        dx = arrow_length * np.cos(yaw)
+        dy = arrow_length * np.sin(yaw)
         ax.arrow(center_x, center_y, dx, dy, 
                 head_width=1.5, head_length=1.0, fc=color, ec=color, alpha=0.8)
         
