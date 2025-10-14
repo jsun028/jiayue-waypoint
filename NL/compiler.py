@@ -412,10 +412,10 @@ class QueryCompiler:
             if atom.other_obj is not None:
                 resolved_other_obj = resolve_object_alias(atom.other_obj, object_assignment)
                 # For pairwise predicates, we need to pass both object assignments
-                result = udf_func(resolved_obj, resolved_other_obj, frame_window=frame_window, **kwargs)
+                result = udf_func(resolved_obj, resolved_other_obj, frame_window, **kwargs)
             else:
                 # Single object predicates
-                result = udf_func(resolved_obj, frame_window=frame_window, **kwargs)
+                result = udf_func(resolved_obj, frame_window, **kwargs)
 
             # Assume UDF returns a score between 0 and 1, or a boolean
             if isinstance(result, bool):

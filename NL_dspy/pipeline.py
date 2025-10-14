@@ -195,7 +195,7 @@ def _format_udf_info(name: str, candidate: object) -> str:
                 spec_parts.append(f"{atom_attr}=<{param_name}>")
         
         # Always include frame_window note
-        spec_parts.append("frame_window=<auto>")
+        # spec_parts.append("frame_window=<auto>")
         
         spec_line = f"Spec: PredicateAtom({', '.join(spec_parts)})"
         summary += f"\n    {spec_line}"
