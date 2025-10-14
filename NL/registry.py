@@ -289,12 +289,19 @@ def {name}(*args, **kwargs) -> float:
 
         return (dot > 0).astype(float).mean()
 
-    def heading_diff_to(self, oid1: int, oid2: int, expected_deg: float, tol_deg: float, frame_window: Tuple[int,int]) -> float:
-        """Fraction of shared frames where heading gap ≈ `expected_deg`.
+    def heading_diff_agent_to_agent(
+        self, 
+        oid1: int, 
+        oid2: int, 
+        expected_deg: float, 
+        tol_deg: float, 
+        frame_window: Tuple[int, int]
+    ) -> float:
+        """Fraction of shared frames where heading gap between two agents ≈ `expected_deg`.
 
         Args:
-            oid1: Reference track identifier.
-            oid2: Comparison track identifier.
+            oid1: Reference agent track identifier.
+            oid2: Comparison agent track identifier.
             expected_deg: Target absolute heading difference in degrees.
             tol_deg: Allowed tolerance around the target in degrees.
             frame_window: Inclusive `(start, end)` frame indices.
@@ -302,24 +309,64 @@ def {name}(*args, **kwargs) -> float:
         Returns:
             Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 without overlap.
 
-        Needs columns `track_id`, `frame_index`, `heading_x`, `heading_y`.
+        Needs columns `track_id`, `frame_index`, `agent_yaw`.
         """
         start, end = frame_window
         df_filtered = self.df[self.df['frame_index'].between(start, end)]
 
-        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['heading_x','heading_y']]
-        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['heading_x','heading_y']]
-        common = d1.join(d2, lsuffix='_1', rsuffix='_2')
+        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')['agent_yaw']
+        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')['agent_yaw']
+        
+        # Join on common frames
+        common = pd.DataFrame({'yaw1': d1, 'yaw2': d2}).dropna()
 
         if common.empty:
             return 0.0
 
-        ang1 = np.arctan2(common['heading_y_1'], common['heading_x_1'])
-        ang2 = np.arctan2(common['heading_y_2'], common['heading_x_2'])
-        diff = np.degrees(np.abs(ang2 - ang1)) % 360
+        # Calculate absolute heading difference
+        diff = np.degrees(np.abs(common['yaw2'] - common['yaw1'])) % 360
         diff = np.where(diff > 180, 360 - diff, diff)
         
+        return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
 
+
+    def heading_diff_agent_to_ego(
+        self, 
+        oid: int, 
+        expected_deg: float, 
+        tol_deg: float, 
+        frame_window: Tuple[int, int]
+    ) -> float:
+        """Fraction of frames where heading gap between agent and ego ≈ `expected_deg`.
+
+        Args:
+            oid: Agent track identifier.
+            expected_deg: Target absolute heading difference in degrees.
+            tol_deg: Allowed tolerance around the target in degrees.
+            frame_window: Inclusive `(start, end)` frame indices.
+
+        Returns:
+            Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 if agent not present.
+
+        Needs columns `track_id`, `frame_index`, `agent_yaw`, `ego_yaw`.
+        """
+        start, end = frame_window
+        df_filtered = self.df[self.df['frame_index'].between(start, end)]
+
+        # Get agent data
+        agent_data = df_filtered[df_filtered['track_id'] == oid].set_index('frame_index')
+        
+        if agent_data.empty:
+            return 0.0
+
+        # Extract agent yaw and ego yaw (ego_yaw should be same for all agents in a frame)
+        agent_yaw = agent_data['agent_yaw']
+        ego_yaw = agent_data['ego_yaw']
+
+        # Calculate absolute heading difference
+        diff = np.degrees(np.abs(ego_yaw - agent_yaw)) % 360
+        diff = np.where(diff > 180, 360 - diff, diff)
+        
         return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
 
 ########################################################
