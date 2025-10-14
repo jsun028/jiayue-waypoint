@@ -36,6 +36,7 @@ PredicateAtom construction guide:
 
 - You may propose a new predicate only if absolutely required.
 - Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
+- Do not use interframe constraints yet, they do not work.
 """
 
 
@@ -61,7 +62,7 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "heading_diff_to",
+                            "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
                             "value": 180.0,
@@ -87,7 +88,7 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "heading_diff_to",
+                            "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
                             "value": 90.0,
@@ -114,7 +115,7 @@ FEWSHOT_JSON = {
             "anchor": "k1",
             "target": "k2",
             "time_shift": 3.0,
-            "comparators": [{"type": "heading_diff", "value": 90.0, "tol": 15.0}],
+            "comparators": [{"type": "heading_diff_agent_to_agent", "value": 90.0, "tol": 15.0}],
         },
         {
             "kind": "trajectory",

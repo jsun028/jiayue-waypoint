@@ -1,11 +1,7 @@
 import os
-<<<<<<< HEAD
-from typing import Callable, Dict, Tuple
-=======
 import inspect
 from typing import Callable, Dict, List, Tuple, Optional
 
->>>>>>> 3a37f4c (Improve registry with specs in docstring and proper args to compiler)
 import numpy as np
 import pandas as pd
 
@@ -92,7 +88,8 @@ class UDFRegistry:
         'velocity_below',
         'is_approaching',
         'is_separating',
-        # 'heading_diff_to',
+        'heading_diff_agent_to_agent',
+        'heading_diff_agent_to_ego',
     )
 
     _GLOBAL_FUNCTIONS: Dict[str, Callable] = {}
@@ -104,10 +101,6 @@ class UDFRegistry:
 
     @classmethod
     def _ensure_global_functions(cls) -> None:
-        """
-        Ensures that the global functions are set up and only set up once.
-        Do this at class level so that global functions are truly global.
-        """
         if cls._GLOBAL_FUNCTIONS:
             return
         for name in cls._BASE_FUNCTION_NAMES:
@@ -392,7 +385,7 @@ def {name}(*args, **kwargs) -> float:
 
         return (dot > 0).astype(float).mean()
 
-<<<<<<< HEAD
+    @udf(expected_deg='value', tol_deg='tol')
     def heading_diff_agent_to_agent(
         self, 
         oid1: int, 
@@ -402,11 +395,6 @@ def {name}(*args, **kwargs) -> float:
         frame_window: Tuple[int, int]
     ) -> float:
         """Fraction of shared frames where heading gap between two agents ≈ `expected_deg`.
-=======
-    @udf(expected_deg='value', tol_deg='tol')
-    def heading_diff_to(self, oid1: int, oid2: int, expected_deg: float, tol_deg: float, frame_window: Tuple[int,int]) -> float:
-        """Fraction of shared frames where heading gap ≈ `expected_deg`.
->>>>>>> 3a37f4c (Improve registry with specs in docstring and proper args to compiler)
 
         Args:
             oid1: Reference agent track identifier.
@@ -438,7 +426,7 @@ def {name}(*args, **kwargs) -> float:
         
         return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
 
-
+    @udf()
     def heading_diff_agent_to_ego(
         self, 
         oid: int, 
@@ -477,6 +465,7 @@ def {name}(*args, **kwargs) -> float:
         diff = np.where(diff > 180, 360 - diff, diff)
         
         return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
+
 
 ########################################################
 GLOBAL_UDF_REGISTRY = UDFRegistry(df=None)

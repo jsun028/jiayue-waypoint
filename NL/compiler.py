@@ -247,6 +247,7 @@ class QueryCompiler:
         # Separate constraints by type
         self_anchored_always = {}
         
+        # For holding self-anchored always constraints (e.g. "always k1")
         for constraint in constraints:
             if constraint.kind == "always" and constraint.anchor is None:
                 self_anchored_always[constraint.target] = constraint

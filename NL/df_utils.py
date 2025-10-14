@@ -5,13 +5,23 @@ from itertools import combinations, product
 def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
     """Generate all possible assignments of object aliases to actual tracks"""
 
+    # Class name mapping: map query spec class names to dataset class names
+    class_name_mapping = {
+        'car': 'vehicle',
+        'person': 'pedestrian',
+        'bike': 'bicycle',
+        'motorcycle': 'motorcycle'
+    }
+
     # Get available tracks for each object class
     tracks_by_class = {}
     for alias in obj_spec.aliases:
         obj_class = obj_spec.aliases[alias]['class']
         if obj_class not in tracks_by_class:
+            # Map query spec class name to dataset class name
+            dataset_class = class_name_mapping.get(obj_class, obj_class)
             tracks_by_class[obj_class] = \
-                df[df['class_name'] == obj_class]['track_id'].unique().tolist()
+                df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
 
     print(tracks_by_class)
     assignments = []
