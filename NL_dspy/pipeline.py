@@ -22,7 +22,18 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Use degrees for angles unless NL explicitly requests radians.
 - Prefer velocity_above(2.0..5.0) for "moving" and velocity_below(2.0..3.0) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
-- Allowed predicates (name and signature):{available_udfs}
+
+Available predicates (each shows function signature and PredicateAtom construction):
+{available_udfs}
+
+PredicateAtom construction guide:
+- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
+- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values
+- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
+- "other_obj" field: for pairwise predicates, use second object alias
+- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
+- Map function parameters to PredicateAtom fields as shown in each spec line
+
 - You may propose a new predicate only if absolutely required.
 - Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
 """

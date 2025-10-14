@@ -8,6 +8,10 @@ import os
 import pathlib
 import sys
 
+from loguru import logger
+
+logger.add("nl_dspy_runs.log", rotation="1 week")
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - optional dependency
@@ -59,6 +63,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    logger.info(f"Running DSPy pipeline with args: {args}")
+
     print("[DSPy][CLI] Initializing language model …")
     configure_lm(args.model, temperature=args.temperature, api_key=args.api_key)
     print("[DSPy][CLI] Building pipeline …")
@@ -70,6 +76,9 @@ def main() -> None:
     print("=== QuerySpec (pydantic) ===")
     print(result.spec)
 
+    logger.info(f"QuerySpec: {result.spec}")
+
+
     if args.dump_json:
         with open(args.dump_json, "w", encoding="utf-8") as handle:
             handle.write(result.spec_json)
@@ -77,6 +86,8 @@ def main() -> None:
     else:
         print("\n=== Raw JSON ===")
         print(json.dumps(json.loads(result.spec_json), indent=2))
+
+    logger.info(f"Raw JSON: {json.dumps(json.loads(result.spec_json), indent=2)}")
 
     if args.dump_pickle:
         write_spec_pickle(result.spec, args.dump_pickle)
