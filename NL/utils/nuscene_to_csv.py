@@ -1,10 +1,11 @@
+# Reference: https://github.com/NVlabs/trajdata/blob/main/src/trajdata/dataset_specific/nusc/nusc_dataset.py
+
 import numpy as np
 import pandas as pd
 import json
 from pathlib import Path
 from typing import Dict, List, Any
 from tqdm import tqdm
-
 
 def load_json_table(json_path: Path) -> List[Dict[str, Any]]:
     """Load a JSON file and return as list."""

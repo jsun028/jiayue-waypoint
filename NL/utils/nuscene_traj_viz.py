@@ -360,9 +360,22 @@ def main():
         plt.tight_layout()
         plt.show()
 
+def create_animation_for_all_scenes():
+    # Create animation for all scenes in v1.0-trainval03_blobs
+    for id in range(225, 319):
+        try:
+            df = load_scene_csv(f'../dataset/scene_scene-{id:04d}.csv')
+            create_animation(df, f'../dataset/animations/scene_scene-{id:04d}.gif')
+        except Exception as e:
+            print(f"Failed to create animation for scene-{id:04d}: {e}")
 
 if __name__ == "__main__":
-     # All scenes in v1.0-trainval03_blobs
-    for id in range(225, 319):
-        df = load_scene_csv(f'../dataset/scene_scene-{id:04d}.csv')
-        create_animation(df, f'../dataset/animations/scene_scene-{id:04d}.gif')
+    # Example usage: 
+    # python nuscene_traj_viz.py --csv_path ../dataset/scene_scene-0225.csv --track-id 1
+    # python nuscene_traj_viz.py --csv_path ../dataset/scene_scene-0225.csv --frame 10
+    # python nuscene_traj_viz.py --csv_path ../dataset/scene_scene-0225.csv --animate --output scene-0225.gif --fps 5
+    main()
+   
+    # Create animation gifs for all scenes
+    # create_animation_for_all_scenes()
+   
