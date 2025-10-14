@@ -1,6 +1,11 @@
+from itertools import product
 import pandas as pd
 import numpy as np
-from itertools import product
+from loguru import logger
+
+# logger.add("compiler.log", rotation="1 week")
+# logger.info("QueryCompiler initialized")
+
 from .registry import UDFRegistry
 from .specs import (
     PredicateAtom,
@@ -16,12 +21,14 @@ from df_utils import generate_object_assignments, find_common_time_range, resolv
 from collections import defaultdict, Counter
 from optimizer.selectivity_integration import SelectivityIntegration
 
+
 class QueryCompiler:
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, metadata_path: str):
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, metadata_path: str, logger: logger):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
         self.all_udfs = registry.get_all_udfs()
+        self.logger = logger
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
         
     def seconds_to_frames(self, seconds: float) -> int:
@@ -372,24 +379,31 @@ class QueryCompiler:
             
             udf_func = self.all_udfs[atom.type]
             
-            # Build arguments based on the predicate type
-            args = []
+            # Get parameter mapping from registry
+            param_mapping = self.registry.get_udf_param_mapping(atom.type)
             
-            # Add value parameter if present
-            if atom.value is not None:
-                args.append(atom.value)
+            # Build keyword arguments based on UDF's parameter mapping
+            kwargs = {}
             
-            # Add tolerance if present
-            # if atom.tol is not None:
-            #     args.append(atom.tol)
+            # Map atom attributes to UDF parameters based on metadata
+            atom_values = {
+                'value': atom.value,
+                'tol': atom.tol,
+                'bbox': atom.bbox,
+                'label': atom.label
+            }
             
-            # Handle bbox predicates
-            # if atom.bbox is not None:
-            #     args.extend(atom.bbox) 
-            
-            # Handle action predicates
-            # if atom.label is not None:
-            #     args.append(atom.label)
+            # Build kwargs using the parameter names from the UDF signature
+            for param_name, atom_attr in param_mapping.items():
+                atom_val = atom_values.get(atom_attr)
+                if atom_val is not None:
+                    # Special handling for bbox which is a tuple - still needs unpacking
+                    if atom_attr == 'bbox':
+                        # For bbox, we'd need to know the param names (x1, y1, x2, y2)
+                        # For now, skip bbox in kwargs - this is a TODO if needed
+                        pass
+                    else:
+                        kwargs[param_name] = atom_val
 
             # Get actual track_id from alias
             resolved_obj = resolve_object_alias(atom.obj, object_assignment)
@@ -398,10 +412,10 @@ class QueryCompiler:
             if atom.other_obj is not None:
                 resolved_other_obj = resolve_object_alias(atom.other_obj, object_assignment)
                 # For pairwise predicates, we need to pass both object assignments
-                result = udf_func(resolved_obj, resolved_other_obj, *args, frame_window)
+                result = udf_func(resolved_obj, resolved_other_obj, frame_window=frame_window, **kwargs)
             else:
                 # Single object predicates
-                result = udf_func(resolved_obj, *args, frame_window)
+                result = udf_func(resolved_obj, frame_window=frame_window, **kwargs)
 
             # Assume UDF returns a score between 0 and 1, or a boolean
             if isinstance(result, bool):
@@ -413,4 +427,5 @@ class QueryCompiler:
 
         except Exception as e:
             print(f"Error evaluating predicate atom '{atom.type}': {e}")
+            self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
             return False

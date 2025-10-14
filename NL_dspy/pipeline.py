@@ -161,6 +161,34 @@ def _format_udf_info(name: str, candidate: object) -> str:
     doc_raw = func.__doc__ or ""
     doc_lines = [line.rstrip() for line in doc_raw.strip().splitlines() if line.strip()]
     summary = f"{name}{signature}"
+    
+    # Add PredicateAtom mapping if available (from @udf decorator)
+    # Always show spec line for consistency, even if no param mapping
+    sig_params = list(signature.parameters.keys()) if signature != "(…)" else []
+    
+    if sig_params or hasattr(func, '_udf_param_mapping'):
+        # Build the spec line showing how params map to PredicateAtom fields
+        spec_parts = []
+        
+        # Add obj parameter (first object ID)
+        spec_parts.append("obj=<object_id/oid1>")
+        
+        # Check if it's a pairwise predicate (has oid2 in signature)
+        if 'oid2' in sig_params or any('oid2' in p.lower() for p in sig_params):
+            spec_parts.append("other_obj=<oid2>")
+        
+        # Add parameter mappings from decorator
+        if hasattr(func, '_udf_param_mapping'):
+            param_mapping = func._udf_param_mapping
+            for param_name, atom_attr in param_mapping.items():
+                spec_parts.append(f"{atom_attr}=<{param_name}>")
+        
+        # Always include frame_window note
+        spec_parts.append("frame_window=<auto>")
+        
+        spec_line = f"Spec: PredicateAtom({', '.join(spec_parts)})"
+        summary += f"\n    {spec_line}"
+    
     if doc_lines:
         summary += "\n    " + "\n    ".join(doc_lines)
     return summary

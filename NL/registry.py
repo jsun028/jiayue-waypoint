@@ -1,7 +1,87 @@
 import os
+<<<<<<< HEAD
 from typing import Callable, Dict, Tuple
+=======
+import inspect
+from typing import Callable, Dict, List, Tuple, Optional
+
+>>>>>>> 3a37f4c (Improve registry with specs in docstring and proper args to compiler)
 import numpy as np
 import pandas as pd
+
+
+def udf(**explicit_mappings):
+    """Decorator to register UDFs with parameter metadata.
+    
+    Uses hybrid approach:
+    - Auto-introspects function signature
+    - Applies conventions for common patterns
+    - Allows explicit overrides via kwargs
+    
+    Args:
+        **explicit_mappings: Explicit param_name='atom_attr' mappings
+                            e.g., @udf(expected_deg='value', tol_deg='tol')
+    
+    Example:
+        @udf()  # Auto-detects first param after object_id -> atom.value
+        def velocity_above(self, object_id, velocity, frame_window):
+            ...
+        
+        @udf(expected_deg='value', tol_deg='tol')  # Explicit mapping
+        def heading_diff_to(self, oid1, oid2, expected_deg, tol_deg, frame_window):
+            ...
+    """
+    def decorator(func):
+        # Get function signature
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+        
+        # Filter out known special parameters
+        special_params = {'self', 'frame_window'}
+        # Object ID parameters (first 1-2 non-self params before value params)
+        object_param_patterns = {'object_id', 'oid1', 'oid2', 'track_id', 'obj_id'}
+        
+        # Build the parameter mapping
+        param_mapping = {}
+        
+        # Find parameters that need mapping (exclude self, object IDs, frame_window)
+        mappable_params = []
+        for param in params:
+            if param in special_params:
+                continue
+            if param in object_param_patterns:
+                continue
+            if 'oid' in param.lower() or ('obj' in param.lower() and 'id' in param.lower()):
+                continue
+            mappable_params.append(param)
+        
+        # Apply explicit mappings first
+        for param_name, atom_attr in explicit_mappings.items():
+            param_mapping[param_name] = atom_attr
+        
+        # Apply conventions for unmapped parameters
+        atom_attrs = ['value', 'tol', 'label', 'bbox']
+        for i, param in enumerate(mappable_params):
+            if param in param_mapping:
+                continue  # Already explicitly mapped
+            
+            # Convention-based mapping
+            if 'tol' in param.lower():
+                param_mapping[param] = 'tol'
+            elif 'label' in param.lower() or 'action' in param.lower():
+                param_mapping[param] = 'label'
+            elif 'bbox' in param.lower() or 'box' in param.lower():
+                param_mapping[param] = 'bbox'
+            elif i < len(atom_attrs):
+                # First unmapped param -> value, second -> tol, etc.
+                param_mapping[param] = atom_attrs[i]
+        
+        # Store metadata on the function
+        func._udf_param_mapping = param_mapping
+        func._udf_signature = sig
+        
+        return func
+    return decorator
 
 
 class UDFRegistry:
@@ -44,6 +124,23 @@ class UDFRegistry:
         """Return the current UDF registry"""
         return self.udf_registry
     
+    def get_udf_param_mapping(self, udf_name: str) -> Dict[str, str]:
+        """Get the parameter mapping for a specific UDF.
+        
+        Returns:
+            Dict mapping parameter_name -> atom_attribute
+            e.g., {'velocity': 'value', 'tol_deg': 'tol'}
+        """
+        if udf_name not in self.udf_registry:
+            return {}
+        
+        func = self.udf_registry[udf_name]
+        # The bound method has __func__ attribute pointing to original function
+        if hasattr(func, '__func__'):
+            func = func.__func__
+        
+        return getattr(func, '_udf_param_mapping', {})
+    
     def register_udf(self, name: str, func: Callable):
         """Dynamically register a new UDF and propagate to future instances."""
         # If we were handed a bound method, recover the underlying function.
@@ -82,6 +179,7 @@ def {name}(*args, **kwargs) -> float:
         return always_true_predicate
     
     # UDF Implementations
+    @udf()
     def velocity_above(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
         """Fraction of frames where speed exceeds `velocity`.
 
@@ -114,6 +212,7 @@ def {name}(*args, **kwargs) -> float:
         above_threshold = (velocity_magnitudes > velocity).astype(int)
         return above_threshold.mean()
     
+    @udf()
     def velocity_below(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
         """Fraction of frames where speed ≤ `velocity`.
 
@@ -146,6 +245,7 @@ def {name}(*args, **kwargs) -> float:
         below_threshold = (velocity_magnitudes <= velocity).astype(int)
         return below_threshold.mean()
 
+    @udf()
     def dist_within_two_obj(self, oid1: int, oid2: int, distance: float, frame_window: Tuple[int, int]) -> pd.Series:
         """Fraction of shared frames where distance ≤ `distance`.
 
@@ -188,6 +288,7 @@ def {name}(*args, **kwargs) -> float:
         within_distance = (distances <= distance).astype(float)
         return within_distance.mean()
 
+    @udf()
     def dist_apart_two_obj(self, oid1: int, oid2: int, min_dist: float, frame_window: Tuple[int, int]) -> float:
         """Fraction of shared frames where distance ≥ `min_dist`.
 
@@ -231,6 +332,7 @@ def {name}(*args, **kwargs) -> float:
         return apart_distance.mean()
 
     
+    @udf()
     def is_approaching(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
         """Fraction of shared frames where relative motion closes distance.
 
@@ -260,6 +362,7 @@ def {name}(*args, **kwargs) -> float:
 
         return (dot < 0).astype(float).mean()
 
+    @udf()
     def is_separating(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
         """Fraction of shared frames where relative motion increases distance.
 
@@ -289,6 +392,7 @@ def {name}(*args, **kwargs) -> float:
 
         return (dot > 0).astype(float).mean()
 
+<<<<<<< HEAD
     def heading_diff_agent_to_agent(
         self, 
         oid1: int, 
@@ -298,6 +402,11 @@ def {name}(*args, **kwargs) -> float:
         frame_window: Tuple[int, int]
     ) -> float:
         """Fraction of shared frames where heading gap between two agents ≈ `expected_deg`.
+=======
+    @udf(expected_deg='value', tol_deg='tol')
+    def heading_diff_to(self, oid1: int, oid2: int, expected_deg: float, tol_deg: float, frame_window: Tuple[int,int]) -> float:
+        """Fraction of shared frames where heading gap ≈ `expected_deg`.
+>>>>>>> 3a37f4c (Improve registry with specs in docstring and proper args to compiler)
 
         Args:
             oid1: Reference agent track identifier.
