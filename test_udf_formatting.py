@@ -44,7 +44,7 @@ def main():
     
     print("\nPairwise UDFs (complex):")
     print("-" * 80)
-    for name in ['heading_diff_to']:
+    for name in ['heading_diff_agent_to_agent', 'heading_diff_agent_to_ego']:
         if name in udfs:
             formatted = _format_udf_info(name, udfs[name])
             print(formatted)

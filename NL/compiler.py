@@ -24,23 +24,20 @@ from optimizer.selectivity_integration import SelectivityIntegration
 
 
 class QueryCompiler:
-<<<<<<< HEAD
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, metadata_path: str, logger: logger):
-=======
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, l: logger, coverage: float | None = None):
->>>>>>> cc76d3f (Track stats)
+
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger, coverage: float | None = None, track_stats: bool = True):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
         self.all_udfs = registry.get_all_udfs()
         self.logger = logger
-<<<<<<< HEAD
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
-=======
         # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0
         if coverage is None:
             coverage = 1.0
         self.coverage = max(0.0, min(1.0, coverage))
+        # Stats toggle
+        self.track_stats = bool(track_stats)
         # Metrics and diagnostics
         self.predicate_stats = {}
         self.reject_counters = {
@@ -50,7 +47,15 @@ class QueryCompiler:
             'interframe': 0,
             'cross_always': 0,
         }
->>>>>>> cc76d3f (Track stats)
+        if self.track_stats:
+            self.predicate_stats = {}
+            self.reject_counters = {
+                'not_all_keyframes': 0,
+                'time_order': 0,
+                'gap': 0,
+                'interframe': 0,
+                'cross_always': 0,
+            }
         
     def seconds_to_frames(self, seconds: float) -> int:
         """Convert seconds to frame count"""
@@ -72,14 +77,15 @@ class QueryCompiler:
         
         results = []
         # reset diagnostics
-        self.predicate_stats = {}
-        self.reject_counters = {
-            'not_all_keyframes': 0,
-            'time_order': 0,
-            'gap': 0,
-            'interframe': 0,
-            'cross_always': 0,
-        }
+        if self.track_stats:
+            self.predicate_stats = {}
+            self.reject_counters = {
+                'not_all_keyframes': 0,
+                'time_order': 0,
+                'gap': 0,
+                'interframe': 0,
+                'cross_always': 0,
+            }
         
         # Convert keyframes list to dict for easier lookup
         keyframes_dict = {kf.name: kf for kf in query_spec.keyframes}
@@ -103,19 +109,6 @@ class QueryCompiler:
             #  Stage 1 – collect candidates
             # ------------------------------------------------------------------
             candidate_frames = self.stage1_per_keyframe_scan(
-<<<<<<< HEAD
-                keyframes_dict, query_spec.constraints, assignment,
-                min_frame, max_frame)
-
-            # Print candidate statistics
-            for kf_name in sorted(candidate_frames.keys()):
-                lst = candidate_frames[kf_name]
-                print(f"    KF {kf_name}: {len(lst)} candidates")
-                if lst:
-                    frame_indices = sorted(set([x[0] for x in lst]))
-                    print(f"      frame_idx: {frame_indices}")
-
-=======
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
             
@@ -123,7 +116,6 @@ class QueryCompiler:
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
             if any(count > 0 for count in candidate_summary.values()):
                 self.logger.info(f"Candidates found for assignment {assignment_idx + 1}: {candidate_summary}")
->>>>>>> cc76d3f (Track stats)
             
             # ------------------------------------------------------------------
             #  Stage 2 – evaluate combinations
@@ -142,7 +134,8 @@ class QueryCompiler:
             # Check if all keyframes have candidates for this assignment
             kf_names = list(keyframes_dict.keys())
             if not all(len(grouped_candidates[kf_name][assignment_signature]) > 0 for kf_name in kf_names):
-                self.reject_counters['not_all_keyframes'] += 1
+                if self.track_stats:
+                    self.reject_counters['not_all_keyframes'] += 1
                 continue
             
             # Evaluate cartesian product
@@ -164,13 +157,15 @@ class QueryCompiler:
                 for i in range(len(times) - 1):
                     if times[i] >= times[i + 1]:  # Must be strictly increasing
                         valid = False
-                        self.reject_counters['time_order'] += 1
+                        if self.track_stats:
+                            self.reject_counters['time_order'] += 1
                         break
                     # Add gap constraints if needed (can be made configurable)
                     gap = times[i + 1] - times[i]
                     if gap < 1 or gap > 1000:  # Reasonable frame gap limits
                         valid = False
-                        self.reject_counters['gap'] += 1
+                        if self.track_stats:
+                            self.reject_counters['gap'] += 1
                         break
                 
                 if not valid:
@@ -222,25 +217,26 @@ class QueryCompiler:
         # Final logging summary
         self.logger.info(f"Found {len(results)} total valid sequences")
         # Predicate selectivity summary
-        try:
-            summary = []
-            for key, stat in self.predicate_stats.items():
-                tested = stat.get('tested', 0)
-                positive = stat.get('positive', 0)
-                sum_score = stat.get('sum_score', 0.0)
-                rate = (positive / tested) if tested > 0 else 0.0
-                avg = (sum_score / tested) if tested > 0 else 0.0
-                summary.append((rate, key, tested, positive, avg))
-            summary.sort(key=lambda x: x[0])  # most selective first
-            top_lines = []
-            for rate, key, tested, positive, avg in summary[:20]:
-                top_lines.append(f"{key} → tested={tested}, pos={positive}, rate={rate:.3f}, avg={avg:.3f}")
-            if top_lines:
-                self.logger.info("Predicate selectivity (top 20 most selective):\n" + "\n".join(top_lines))
-            # Rejection counters
-            self.logger.info(f"Rejections: {self.reject_counters}")
-        except Exception as _e:
-            self.logger.error(f"Error computing selectivity summary: {_e}")
+        if self.track_stats:
+            try:
+                summary = []
+                for key, stat in self.predicate_stats.items():
+                    tested = stat.get('tested', 0)
+                    positive = stat.get('positive', 0)
+                    sum_score = stat.get('sum_score', 0.0)
+                    rate = (positive / tested) if tested > 0 else 0.0
+                    avg = (sum_score / tested) if tested > 0 else 0.0
+                    summary.append((rate, key, tested, positive, avg))
+                summary.sort(key=lambda x: x[0])  # most selective first
+                top_lines = []
+                for rate, key, tested, positive, avg in summary[:20]:
+                    top_lines.append(f"{key} → tested={tested}, pos={positive}, rate={rate:.3f}, avg={avg:.3f}")
+                if top_lines:
+                    self.logger.info("Predicate selectivity (top 20 most selective):\n" + "\n".join(top_lines))
+                # Rejection counters
+                self.logger.info(f"Rejections: {self.reject_counters}")
+            except Exception as _e:
+                self.logger.error(f"Error computing selectivity summary: {_e}")
         
         return results
 
@@ -304,12 +300,6 @@ class QueryCompiler:
         for kf_name, kf_spec in keyframes_dict.items():
             frame_candidates = []
             
-<<<<<<< HEAD
-            frame_indices = range(min_frame, max_frame + 1)
-
-            # Scan selected frames only
-            for frame_idx in frame_indices:
-=======
             # Scan each frame in the valid range
             # Apply coverage subsampling by fixed stride to ensure even coverage
             total_frames = max_frame - min_frame + 1
@@ -319,7 +309,6 @@ class QueryCompiler:
                 continue
             stride = max(1, int(round(1.0 / self.coverage)))
             for frame_idx in range(min_frame, max_frame + 1, stride):
->>>>>>> cc76d3f (Track stats)
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
                 # Single frame window by default
@@ -331,21 +320,22 @@ class QueryCompiler:
                     frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
                 
                 # Per-atom selectivity tracking
-                atoms = self._collect_atoms(kf_spec.where)
-                for atom in atoms:
-                    key = f"{kf_name}:{atom.type}:{atom.obj}:{atom.other_obj}:{atom.value}:{atom.tol}:{atom.label}"
-                    if key not in self.predicate_stats:
-                        self.predicate_stats[key] = {'tested': 0, 'positive': 0, 'sum_score': 0.0}
-                    try:
-                        atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
-                    except Exception:
-                        atom_score = 0.0
-                    self.predicate_stats[key]['tested'] += 1
-                    # Treat any positive score as a hit
-                    if isinstance(atom_score, (int, float)) and atom_score > 0:
-                        self.predicate_stats[key]['positive'] += 1
-                    if isinstance(atom_score, (int, float)):
-                        self.predicate_stats[key]['sum_score'] += float(atom_score)
+                if self.track_stats:
+                    atoms = self._collect_atoms(kf_spec.where)
+                    for atom in atoms:
+                        key = f"{kf_name}:{atom.type}:{atom.obj}:{atom.other_obj}:{atom.value}:{atom.tol}:{atom.label}"
+                        if key not in self.predicate_stats:
+                            self.predicate_stats[key] = {'tested': 0, 'positive': 0, 'sum_score': 0.0}
+                        try:
+                            atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
+                        except Exception:
+                            atom_score = 0.0
+                        self.predicate_stats[key]['tested'] += 1
+                        # Treat any positive score as a hit
+                        if isinstance(atom_score, (int, float)) and atom_score > 0:
+                            self.predicate_stats[key]['positive'] += 1
+                        if isinstance(atom_score, (int, float)):
+                            self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
                 score = self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
