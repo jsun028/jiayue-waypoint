@@ -75,6 +75,10 @@ class QuerySpec(BaseModel):
     keyframes: List[KeyframeSpec]
     constraints: List[ConstraintSpec]
 
+    # True -> use combinations, False -> use assignments
+    # False -> use permutations
+    use_combinations: bool = False 
+
     @field_validator("keyframes")
     @classmethod
     def kf_names_unique(cls, v):

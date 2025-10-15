@@ -18,9 +18,20 @@ from .specs import (
     TrajectorySpec,
 )
 from typing import Dict, List, Tuple
+<<<<<<< HEAD
 from df_utils import generate_object_assignments, find_common_time_range, resolve_object_alias
 from collections import defaultdict, Counter
 from optimizer.selectivity_integration import SelectivityIntegration
+=======
+from df_utils import (
+    generate_object_assignments,
+    generate_object_combinations,
+    find_common_time_range,
+    resolve_object_alias,
+)
+from collections import defaultdict, Counter
+from optimizer.selectivity_integration import SelectivityIntegration
+>>>>>>> b25445e (optional combo instead)
 
 
 class QueryCompiler:
@@ -91,7 +102,10 @@ class QueryCompiler:
         keyframes_dict = {kf.name: kf for kf in query_spec.keyframes}
         
         # Find all possible object assignments (variable bindings)
-        object_assignments = generate_object_assignments(self.df, query_spec.objects)
+        if getattr(query_spec, 'use_combinations', False):
+            object_assignments = generate_object_combinations(self.df, query_spec.objects)
+        else:
+            object_assignments = generate_object_assignments(self.df, query_spec.objects)
         
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):

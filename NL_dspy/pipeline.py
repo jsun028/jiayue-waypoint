@@ -22,6 +22,7 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Use degrees for angles unless NL explicitly requests radians.
 - Prefer velocity_above(1) for "moving" and velocity_below(0.25) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
+ - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
@@ -53,6 +54,7 @@ FEWSHOT_JSON = {
             "car2": {"class": "car", "idx": 1},
         },
     },
+    "use_combinations": True,
     "keyframes": [
         {
             "name": "k1",
