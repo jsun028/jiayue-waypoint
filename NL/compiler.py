@@ -31,6 +31,7 @@ class QueryCompiler:
                 sel = float(est["selectivity"])
                 results[kf.name] = sel
                 print(f"[Keyframe {kf.name}] estimated selectivity = {sel:.4f}")
+            print()
             return results
         
         results = []

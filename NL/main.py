@@ -22,6 +22,7 @@ def example_usage():
     spec = pickle.load(open("spec.pkl", "rb"))
     print_spec_details(spec)
 
+    
     print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")
     print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
     
@@ -37,15 +38,15 @@ def example_usage():
 
     # Print execution mode
     if estimation_mode:
-        print(f"Executing query with estimation mode")
+        print(f"[INFO] Executing query with estimation mode...")
     else:
-        print("Executing full search")
+        print(f"[INFO] Executing full search...")
 
     # Execute query with parameters
     results = compiler.execute_query(spec, estimation_mode=estimation_mode)
 
     
-    print(results)
+    print(f"[INFO] Results: {results}")
     
 
 if __name__ == "__main__":

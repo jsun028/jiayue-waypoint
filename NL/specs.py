@@ -113,7 +113,6 @@ def print_spec_details(spec: QuerySpec):
             for j, arg in enumerate(kf.where.args):
                 if arg.op == "ATOM":
                     print(f"    {j+1}. Atom details: Type: {arg.atom.type}, Object: {arg.atom.obj}, Other object: {arg.atom.other_obj}, Value: {arg.atom.value}")
-        print()
     
     # Show constraint details
     for i, c in enumerate(spec.constraints):
@@ -124,4 +123,5 @@ def print_spec_details(spec: QuerySpec):
             print(f"  {c.anchor} -> {c.target}, Time shift: {c.time_shift}s, Comparators: {c.comparators}")
         elif c.kind == "trajectory":
             print(f"  Object: {c.obj}, {c.start} -> {c.end}, Template: {c.template}")
-        print()
+    
+    print()
