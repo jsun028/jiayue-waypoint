@@ -107,7 +107,8 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
     logger.info(f"Wrote visualization GIFs → {out_dir}")
 
 # Example usage
-def example_usage(spec_path, data_path, coverage: float | None = None, track_stats: bool = True, out_path: str | None = None, do_viz: bool = False, viz_dir: str | None = None):
+def example_usage(spec_path, data_path, coverage: float | None = None, track_stats: bool = True, 
+out_path: str | None = None, do_viz: bool = False, viz_dir: str | None = None, limit: int | None = None, dedup_threshold: float | None = None):
     # Sample data
     df = pd.read_csv(data_path)
     
@@ -121,7 +122,7 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")
     print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
     
-    compiler = QueryCompiler(registry, df, logger, coverage=coverage, track_stats=track_stats)
+    compiler = QueryCompiler(registry, df, logger, coverage=coverage, track_stats=track_stats, dedup_threshold=dedup_threshold, limit=limit)
     # Execute query with two-stage search
     results = compiler.execute_query(spec)
     for result in results:
@@ -148,6 +149,8 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
     parser.add_argument("--viz", action="store_true", help="Generate visualization images per result keyframe")
     parser.add_argument("--viz-dir", type=str, default=None, help="Directory for visualization images (default derived from --out)")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return")
+    parser.add_argument("--dedup-threshold", type=float, default=0.25, help="Deduplication threshold for overlapping time windows")
     args = parser.parse_args()
 
     logger.info(f"Running example usage with spec: {args.spec} and data: {args.data}, coverage={args.coverage}, track_stats={args.track_stats}, out={args.out}, viz={args.viz}")
@@ -159,5 +162,7 @@ if __name__ == "__main__":
         out_path=args.out,
         do_viz=args.viz,
         viz_dir=args.viz_dir,
+        limit=args.limit,
+        dedup_threshold=args.dedup_threshold,
     )
 
