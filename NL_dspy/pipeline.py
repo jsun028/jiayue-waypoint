@@ -20,7 +20,7 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Output ONLY valid JSON; no markdown code fences or commentary.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
-- Prefer velocity_above(1) for "moving" and velocity_below(0.25) for "stopped".
+- Prefer velocity_above(0.4) for "moving" and velocity_below(0.25) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
  - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 

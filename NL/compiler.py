@@ -18,11 +18,6 @@ from .specs import (
     TrajectorySpec,
 )
 from typing import Dict, List, Tuple
-<<<<<<< HEAD
-from df_utils import generate_object_assignments, find_common_time_range, resolve_object_alias
-from collections import defaultdict, Counter
-from optimizer.selectivity_integration import SelectivityIntegration
-=======
 from df_utils import (
     generate_object_assignments,
     generate_object_combinations,
@@ -31,12 +26,11 @@ from df_utils import (
 )
 from collections import defaultdict, Counter
 from optimizer.selectivity_integration import SelectivityIntegration
->>>>>>> b25445e (optional combo instead)
 
 
 class QueryCompiler:
-
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger, coverage: float | None = None, track_stats: bool = True):
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, l: logger, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
+    metadata_path: str = None):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
@@ -47,6 +41,8 @@ class QueryCompiler:
         if coverage is None:
             coverage = 1.0
         self.coverage = max(0.0, min(1.0, coverage))
+        self.dedup_threshold = dedup_threshold
+        self.limit = limit
         # Stats toggle
         self.track_stats = bool(track_stats)
         # Metrics and diagnostics
@@ -129,7 +125,7 @@ class QueryCompiler:
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
             if any(count > 0 for count in candidate_summary.values()):
-                self.logger.info(f"Candidates found for assignment {assignment_idx + 1}: {candidate_summary}")
+                self.logger.debug(f"Candidates found for assignment {assignment_idx + 1}: {candidate_summary}")
             
             # ------------------------------------------------------------------
             #  Stage 2 – evaluate combinations
@@ -138,6 +134,7 @@ class QueryCompiler:
             # Since we already have a fixed assignment, all candidates share the same signature
             grouped_candidates = {}
             assignment_signature = tuple(sorted(assignment.items()))
+            overlap_checker = {}
             
             for kf_name in keyframes_dict.keys():
                 if kf_name in candidate_frames:
@@ -159,7 +156,6 @@ class QueryCompiler:
             for s in sizes:
                 total_combos *= s
             
-            num_eval = 0
             valid_combinations = []
             
             for combo in product(*cand_lists):
@@ -193,12 +189,30 @@ class QueryCompiler:
                     positions[kf_name] = frame_idx
                     individual_scores[kf_name] = score
                 
-                # Evaluate cross-constraints
+                # Early dedup check: skip if time-window IoU overlaps with accepted
+                is_overlap = False
+                if self.dedup_threshold > 0.0:
+                    sorted_keyframe_positions = list(sorted(positions.values()))
+                    start_frame = sorted_keyframe_positions[0]
+                    end_frame = sorted_keyframe_positions[-1]
+                    labeled_assignments = self._assignment_key(assignment)
+
+                    if labeled_assignments in overlap_checker:
+                        if self._time_window_iou_overlap(
+                            overlap_checker[labeled_assignments], start_frame, end_frame, self.dedup_threshold
+                        ):
+                            is_overlap = True
+                    if is_overlap:
+                        continue
+
+                # Evaluate cross-constraints only if not overlapping
                 ok, cross_score, score_details = self.eval_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
-                
+
                 if ok:
+                    if self.dedup_threshold > 0.0:
+                        self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
                     final_score = sum(individual_scores.values()) + cross_score
                     valid_combinations.append({
                         'positions': positions,
@@ -208,7 +222,6 @@ class QueryCompiler:
                         'score_details': score_details
                     })
                 
-                num_eval += 1
             
             if len(valid_combinations) > 0:
                 self.logger.info(f"Valid combos for assignment {assignment_idx + 1}: {len(valid_combinations)} / {total_combos}")
@@ -227,6 +240,14 @@ class QueryCompiler:
         
         # Sort results by aggregate score (descending)
         results.sort(key=lambda x: x['aggregate_score'], reverse=True)
+        # Enforce final results cap if requested
+        if self.limit is not None:
+            try:
+                lim = int(self.limit)
+                if lim >= 0:
+                    results = results[:lim]
+            except Exception:
+                pass
         
         # Final logging summary
         self.logger.info(f"Found {len(results)} total valid sequences")
@@ -290,6 +311,35 @@ class QueryCompiler:
                 return False, 0.0, score_details
         
         return True, total_cross_score, score_details
+
+    def _assignment_key(self, assignment: Dict[str, int]):
+        """Stable, hashable key for overlap tracking for a given object assignment."""
+        return tuple(sorted([f"{alias}:{obj_id}" for alias, obj_id in assignment.items()]))
+
+    def _time_window_iou_overlap(self, existing_windows: List[Tuple[int, int]],
+                                 start_frame: int, end_frame: int, threshold: float) -> bool:
+        """Check if [start_frame, end_frame] overlaps any existing window with IoU > threshold.
+
+        IoU here is computed over inclusive frame ranges as set intersection/union sizes.
+        """
+        for (s, e) in existing_windows:
+            inter_start = max(start_frame, s)
+            inter_end = min(end_frame, e)
+            inter = max(0, inter_end - inter_start + 1)
+            if inter == 0:
+                continue
+            len_a = end_frame - start_frame + 1
+            len_b = e - s + 1
+            union = len_a + len_b - inter
+            iou = (inter / union) if union > 0 else 0.0
+            if iou > threshold:
+                return True
+        return False
+
+    def _record_overlap_window(self, overlap_checker: Dict,
+                               assignment_key, start_frame: int, end_frame: int) -> None:
+        """Record an accepted [start_frame, end_frame] window for the given assignment key."""
+        overlap_checker.setdefault(assignment_key, []).append((start_frame, end_frame))
 
     def stage1_per_keyframe_scan(self, keyframes_dict: Dict[str, KeyframeSpec], 
                                 constraints: List, 
