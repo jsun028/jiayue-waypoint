@@ -7,8 +7,8 @@ from tqdm import tqdm
 # logger.add("compiler.log", rotation="1 week")
 # logger.info("QueryCompiler initialized")
 
-from .registry import UDFRegistry
-from .specs import (
+from NL.registry import UDFRegistry
+from NL.specs import (
     PredicateAtom,
     PredicateExpr,
     KeyframeSpec,
@@ -18,19 +18,19 @@ from .specs import (
     TrajectorySpec,
 )
 from typing import Dict, List, Tuple
-from df_utils import (
+from NL.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
     find_common_time_range,
     resolve_object_alias,
 )
 from collections import defaultdict, Counter
-from optimizer.selectivity_integration import SelectivityIntegration
+from NL.optimizer.selectivity_integration import SelectivityIntegration
 
 
 class QueryCompiler:
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, l: logger, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str = None):
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
+    metadata_path: str | None = None):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
