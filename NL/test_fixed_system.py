@@ -9,8 +9,8 @@ import pickle
 from specs import print_spec_details
 # sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'keyframe-new'))
 
-from experiments import chain
-from registry import GLOBAL_UDF_REGISTRY
+from .experiments import chain
+from .registry import GLOBAL_UDF_REGISTRY
 
 def test_system():
     """Test the fixed system with the original query"""

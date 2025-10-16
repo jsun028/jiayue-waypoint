@@ -1,4 +1,4 @@
-from optimizer.selectivity_estimator import SelectivityEstimator
+from NL.optimizer.selectivity_estimator import SelectivityEstimator
 import numpy as np
 
 class SelectivityIntegration:

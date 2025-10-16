@@ -2,7 +2,7 @@
 from __future__ import annotations
 from pydantic import BaseModel, field_validator, Field, model_validator
 from typing import List, Literal, Optional, Tuple, Dict, Union, Any
-from registry import UDFRegistry, GLOBAL_UDF_REGISTRY
+from .registry import UDFRegistry, GLOBAL_UDF_REGISTRY
 import json
 
 
@@ -70,9 +70,14 @@ class ObjectsSpec(BaseModel):
     aliases: Dict[str, Dict[str, Any]]   # alias -> {"class":..., "idx":...}
 
 class QuerySpec(BaseModel):
+    explanation: Optional[str] = None
     objects: ObjectsSpec
     keyframes: List[KeyframeSpec]
     constraints: List[ConstraintSpec]
+
+    # True -> use combinations, False -> use assignments
+    # False -> use permutations
+    use_combinations: bool = False 
 
     @field_validator("keyframes")
     @classmethod
@@ -82,22 +87,6 @@ class QuerySpec(BaseModel):
         return v
 
     
-    @model_validator(mode="after")
-    def kf_semantic_unique(self) -> "QuerySpec":
-        seen = {}
-        for kf in self.keyframes:
-            # compare semantic equivalence without 'name'
-            where_dict = kf.where.model_dump()
-            key = json.dumps(where_dict, sort_keys=True)  # stable comparison
-            if key in seen:
-                raise ValueError(
-                    f"Duplicate keyframe content detected: "
-                    f"{kf.name} is semantically identical to {seen[key]}"
-                )
-            seen[key] = kf.name
-        return self
-
-
 def print_spec_details(spec: QuerySpec):
 
     print(f"Objects: {spec.objects.counts}")
@@ -125,3 +114,20 @@ def print_spec_details(spec: QuerySpec):
             print(f"  Object: {c.obj}, {c.start} -> {c.end}, Template: {c.template}")
     
     print()
+
+    # @model_validator(mode="after")
+    # def kf_semantic_unique(self) -> "QuerySpec":
+    #     seen = {}
+    #     for kf in self.keyframes:
+    #         # compare semantic equivalence without 'name'
+    #         where_dict = kf.where.model_dump()
+    #         key = json.dumps(where_dict, sort_keys=True)  # stable comparison
+    #         if key in seen:
+    #             raise ValueError(
+    #                 f"Duplicate keyframe content detected: "
+    #                 f"{kf.name} is semantically identical to {seen[key]}"
+    #             )
+    #         seen[key] = kf.name
+    #     return self
+
+    # no validation for explanation; human-readable only

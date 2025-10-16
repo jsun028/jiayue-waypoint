@@ -5,13 +5,23 @@ from itertools import combinations, product
 def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
     """Generate all possible assignments of object aliases to actual tracks"""
 
+    # Class name mapping: map query spec class names to dataset class names
+    class_name_mapping = {
+        'car': 'vehicle',
+        'person': 'pedestrian',
+        'bike': 'bicycle',
+        'motorcycle': 'motorcycle'
+    }
+
     # Get available tracks for each object class
     tracks_by_class = {}
     for alias in obj_spec.aliases:
         obj_class = obj_spec.aliases[alias]['class']
         if obj_class not in tracks_by_class:
+            # Map query spec class name to dataset class name
+            dataset_class = class_name_mapping.get(obj_class, obj_class)
             tracks_by_class[obj_class] = \
-                df[df['class_name'] == obj_class]['track_id'].unique().tolist()
+                df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
 
     print(tracks_by_class)
     assignments = []
@@ -87,3 +97,59 @@ def find_common_time_range(df: pd.DataFrame, object_assignment: Dict[str, int]) 
         return (min_frame, max_frame)
     else:
         return None  # No overlap
+
+def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
+    """Generate assignments using combinations per class (not permutations across aliases).
+
+    For each object class, choose combinations of distinct tracks of size equal to the
+    number of aliases of that class. The chosen tracks are then assigned to the aliases
+    in their declaration order, yielding one assignment per unique combination set.
+    """
+
+    # Class name mapping: map query spec class names to dataset class names
+    class_name_mapping = {
+        'car': 'vehicle',
+        'person': 'pedestrian',
+        'bike': 'bicycle',
+        'motorcycle': 'motorcycle'
+    }
+
+    # Build available tracks per class and record aliases per class (preserving alias order)
+    tracks_by_class: Dict[str, List[int]] = {}
+    aliases_by_class: Dict[str, List[str]] = {}
+
+    for alias in obj_spec.aliases:
+        obj_class = obj_spec.aliases[alias]['class']
+        if obj_class not in aliases_by_class:
+            aliases_by_class[obj_class] = []
+        aliases_by_class[obj_class].append(alias)
+
+        if obj_class not in tracks_by_class:
+            dataset_class = class_name_mapping.get(obj_class, obj_class)
+            tracks_by_class[obj_class] = \
+                df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
+
+    # Compute combinations of tracks for each class sized to number of aliases of that class
+    combo_lists_by_class: Dict[str, List[Tuple[int, ...]]] = {}
+    for obj_class, aliases in aliases_by_class.items():
+        choose_k = len(aliases)
+        available_tracks = tracks_by_class.get(obj_class, [])
+        combo_lists_by_class[obj_class] = list(combinations(available_tracks, choose_k)) if choose_k > 0 else [()] 
+
+    # If there are no classes/aliases, there are no assignments to make
+    if not combo_lists_by_class:
+        return []
+
+    # Create full assignments by taking the Cartesian product across classes
+    class_order = list(combo_lists_by_class.keys())
+    assignments: List[Dict[str, int]] = []
+    for per_class_choices in product(*[combo_lists_by_class[c] for c in class_order]):
+        assignment: Dict[str, int] = {}
+        for obj_class, chosen_tracks in zip(class_order, per_class_choices):
+            alias_list = aliases_by_class[obj_class]
+            # Assign chosen tracks to aliases in declaration order
+            for alias, track_id in zip(alias_list, chosen_tracks):
+                assignment[alias] = track_id
+        assignments.append(assignment)
+
+    return assignments

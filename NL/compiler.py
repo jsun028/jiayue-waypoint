@@ -1,20 +1,68 @@
+from itertools import product
 import pandas as pd
 import numpy as np
-from itertools import product
-from registry import UDFRegistry
-from specs import PredicateAtom, PredicateExpr, KeyframeSpec, QuerySpec, AlwaysSpec, InterframeSpec, TrajectorySpec
+from loguru import logger
+from tqdm import tqdm
+
+# logger.add("compiler.log", rotation="1 week")
+# logger.info("QueryCompiler initialized")
+
+from NL.registry import UDFRegistry
+from NL.specs import (
+    PredicateAtom,
+    PredicateExpr,
+    KeyframeSpec,
+    QuerySpec,
+    AlwaysSpec,
+    InterframeSpec,
+    TrajectorySpec,
+)
 from typing import Dict, List, Tuple
-from df_utils import generate_object_assignments, find_common_time_range, resolve_object_alias
+from NL.df_utils import (
+    generate_object_assignments,
+    generate_object_combinations,
+    find_common_time_range,
+    resolve_object_alias,
+)
 from collections import defaultdict, Counter
-from optimizer.selectivity_integration import SelectivityIntegration
+from NL.optimizer.selectivity_integration import SelectivityIntegration
+
 
 class QueryCompiler:
-    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, metadata_path: str):
+    def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
+    metadata_path: str | None = None):
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
         self.all_udfs = registry.get_all_udfs()
+        self.logger = logger
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
+        # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0
+        if coverage is None:
+            coverage = 1.0
+        self.coverage = max(0.0, min(1.0, coverage))
+        self.dedup_threshold = dedup_threshold
+        self.limit = limit
+        # Stats toggle
+        self.track_stats = bool(track_stats)
+        # Metrics and diagnostics
+        self.predicate_stats = {}
+        self.reject_counters = {
+            'not_all_keyframes': 0,
+            'time_order': 0,
+            'gap': 0,
+            'interframe': 0,
+            'cross_always': 0,
+        }
+        if self.track_stats:
+            self.predicate_stats = {}
+            self.reject_counters = {
+                'not_all_keyframes': 0,
+                'time_order': 0,
+                'gap': 0,
+                'interframe': 0,
+                'cross_always': 0,
+            }
         
     def seconds_to_frames(self, seconds: float) -> int:
         """Convert seconds to frame count"""
@@ -35,22 +83,28 @@ class QueryCompiler:
             return results
         
         results = []
+        # reset diagnostics
+        if self.track_stats:
+            self.predicate_stats = {}
+            self.reject_counters = {
+                'not_all_keyframes': 0,
+                'time_order': 0,
+                'gap': 0,
+                'interframe': 0,
+                'cross_always': 0,
+            }
         
         # Convert keyframes list to dict for easier lookup
         keyframes_dict = {kf.name: kf for kf in query_spec.keyframes}
         
         # Find all possible object assignments (variable bindings)
-        object_assignments = generate_object_assignments(self.df, query_spec.objects)
-        
-        print(f"Found {len(object_assignments)} possible object assignments")
+        if getattr(query_spec, 'use_combinations', False):
+            object_assignments = generate_object_combinations(self.df, query_spec.objects)
+        else:
+            object_assignments = generate_object_assignments(self.df, query_spec.objects)
         
         # For each possible object assignment, perform two-stage search
-        for assignment_idx, assignment in enumerate(object_assignments):
-            # Debug: limit to first 2 assignments
-            # if assignment_idx > 1:
-            #     print("  → Limiting to first assignments for testing")
-            #     break
-            print(f"\n[Assignment {assignment_idx + 1}/{len(object_assignments)}] {assignment}")
+        for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
 
             # Find the time range where all assigned objects exist
             time_range = find_common_time_range(self.df, assignment)
@@ -59,34 +113,28 @@ class QueryCompiler:
                 continue
             
             min_frame, max_frame = time_range
-            print(f"  → Time range: frames {min_frame} to {max_frame}")
+            # no verbose printing; progress is shown via tqdm
             
             # ------------------------------------------------------------------
             #  Stage 1 – collect candidates
             # ------------------------------------------------------------------
-            print("  [Stage 1] Collecting per‑KF candidates …")
             candidate_frames = self.stage1_per_keyframe_scan(
-                keyframes_dict, query_spec.constraints, assignment,
-                min_frame, max_frame)
-
-            # Print candidate statistics
-            for kf_name in sorted(candidate_frames.keys()):
-                lst = candidate_frames[kf_name]
-                print(f"    KF {kf_name}: {len(lst)} candidates")
-                if lst:
-                    frame_indices = sorted(set([x[0] for x in lst]))
-                    print(f"      frame_idx: {frame_indices}")
-
+                keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
+            )
+            
+            # Log candidate presence concisely
+            candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
+            if any(count > 0 for count in candidate_summary.values()):
+                self.logger.debug(f"Candidates found for assignment {assignment_idx + 1}: {candidate_summary}")
             
             # ------------------------------------------------------------------
             #  Stage 2 – evaluate combinations
             # ------------------------------------------------------------------
-            print("  [Stage 2] Evaluating cross‑KF combinations …")
-            
             # Group candidate frames by object assignment signature
             # Since we already have a fixed assignment, all candidates share the same signature
             grouped_candidates = {}
             assignment_signature = tuple(sorted(assignment.items()))
+            overlap_checker = {}
             
             for kf_name in keyframes_dict.keys():
                 if kf_name in candidate_frames:
@@ -97,22 +145,17 @@ class QueryCompiler:
             # Check if all keyframes have candidates for this assignment
             kf_names = list(keyframes_dict.keys())
             if not all(len(grouped_candidates[kf_name][assignment_signature]) > 0 for kf_name in kf_names):
-                print("    → Not all keyframes have candidates, skipping")
+                if self.track_stats:
+                    self.reject_counters['not_all_keyframes'] += 1
                 continue
-            
-            print(f"    → 1 shared query_obj group: {assignment_signature}")
             
             # Evaluate cartesian product
             cand_lists = [grouped_candidates[kf_name][assignment_signature] for kf_name in kf_names]
             sizes = [len(c) for c in cand_lists]
-            product_expr = " x ".join(str(n) for n in sizes)
             total_combos = 1
             for s in sizes:
                 total_combos *= s
             
-            print(f"    Candidate pool sizes: {product_expr} = {total_combos:,} combinations")
-            
-            num_eval = 0
             valid_combinations = []
             
             for combo in product(*cand_lists):
@@ -124,11 +167,15 @@ class QueryCompiler:
                 for i in range(len(times) - 1):
                     if times[i] >= times[i + 1]:  # Must be strictly increasing
                         valid = False
+                        if self.track_stats:
+                            self.reject_counters['time_order'] += 1
                         break
                     # Add gap constraints if needed (can be made configurable)
                     gap = times[i + 1] - times[i]
                     if gap < 1 or gap > 1000:  # Reasonable frame gap limits
                         valid = False
+                        if self.track_stats:
+                            self.reject_counters['gap'] += 1
                         break
                 
                 if not valid:
@@ -142,12 +189,30 @@ class QueryCompiler:
                     positions[kf_name] = frame_idx
                     individual_scores[kf_name] = score
                 
-                # Evaluate cross-constraints
+                # Early dedup check: skip if time-window IoU overlaps with accepted
+                is_overlap = False
+                if self.dedup_threshold > 0.0:
+                    sorted_keyframe_positions = list(sorted(positions.values()))
+                    start_frame = sorted_keyframe_positions[0]
+                    end_frame = sorted_keyframe_positions[-1]
+                    labeled_assignments = self._assignment_key(assignment)
+
+                    if labeled_assignments in overlap_checker:
+                        if self._time_window_iou_overlap(
+                            overlap_checker[labeled_assignments], start_frame, end_frame, self.dedup_threshold
+                        ):
+                            is_overlap = True
+                    if is_overlap:
+                        continue
+
+                # Evaluate cross-constraints only if not overlapping
                 ok, cross_score, score_details = self.eval_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
-                
+
                 if ok:
+                    if self.dedup_threshold > 0.0:
+                        self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
                     final_score = sum(individual_scores.values()) + cross_score
                     valid_combinations.append({
                         'positions': positions,
@@ -157,10 +222,9 @@ class QueryCompiler:
                         'score_details': score_details
                     })
                 
-                num_eval += 1
             
-            print(f"    evaluated {num_eval:,} combinations in total")
-            print(f"    found {len(valid_combinations)} valid combinations")
+            if len(valid_combinations) > 0:
+                self.logger.info(f"Valid combos for assignment {assignment_idx + 1}: {len(valid_combinations)} / {total_combos}")
             
             # Add results for this assignment
             for combination in valid_combinations:
@@ -176,8 +240,38 @@ class QueryCompiler:
         
         # Sort results by aggregate score (descending)
         results.sort(key=lambda x: x['aggregate_score'], reverse=True)
+        # Enforce final results cap if requested
+        if self.limit is not None:
+            try:
+                lim = int(self.limit)
+                if lim >= 0:
+                    results = results[:lim]
+            except Exception:
+                pass
         
-        print(f"\n[Final Results] Found {len(results)} total valid sequences")
+        # Final logging summary
+        self.logger.info(f"Found {len(results)} total valid sequences")
+        # Predicate selectivity summary
+        if self.track_stats:
+            try:
+                summary = []
+                for key, stat in self.predicate_stats.items():
+                    tested = stat.get('tested', 0)
+                    positive = stat.get('positive', 0)
+                    sum_score = stat.get('sum_score', 0.0)
+                    rate = (positive / tested) if tested > 0 else 0.0
+                    avg = (sum_score / tested) if tested > 0 else 0.0
+                    summary.append((rate, key, tested, positive, avg))
+                summary.sort(key=lambda x: x[0])  # most selective first
+                top_lines = []
+                for rate, key, tested, positive, avg in summary[:20]:
+                    top_lines.append(f"{key} → tested={tested}, pos={positive}, rate={rate:.3f}, avg={avg:.3f}")
+                if top_lines:
+                    self.logger.info("Predicate selectivity (top 20 most selective):\n" + "\n".join(top_lines))
+                # Rejection counters
+                self.logger.info(f"Rejections: {self.reject_counters}")
+            except Exception as _e:
+                self.logger.error(f"Error computing selectivity summary: {_e}")
         
         return results
 
@@ -218,6 +312,35 @@ class QueryCompiler:
         
         return True, total_cross_score, score_details
 
+    def _assignment_key(self, assignment: Dict[str, int]):
+        """Stable, hashable key for overlap tracking for a given object assignment."""
+        return tuple(sorted([f"{alias}:{obj_id}" for alias, obj_id in assignment.items()]))
+
+    def _time_window_iou_overlap(self, existing_windows: List[Tuple[int, int]],
+                                 start_frame: int, end_frame: int, threshold: float) -> bool:
+        """Check if [start_frame, end_frame] overlaps any existing window with IoU > threshold.
+
+        IoU here is computed over inclusive frame ranges as set intersection/union sizes.
+        """
+        for (s, e) in existing_windows:
+            inter_start = max(start_frame, s)
+            inter_end = min(end_frame, e)
+            inter = max(0, inter_end - inter_start + 1)
+            if inter == 0:
+                continue
+            len_a = end_frame - start_frame + 1
+            len_b = e - s + 1
+            union = len_a + len_b - inter
+            iou = (inter / union) if union > 0 else 0.0
+            if iou > threshold:
+                return True
+        return False
+
+    def _record_overlap_window(self, overlap_checker: Dict,
+                               assignment_key, start_frame: int, end_frame: int) -> None:
+        """Record an accepted [start_frame, end_frame] window for the given assignment key."""
+        overlap_checker.setdefault(assignment_key, []).append((start_frame, end_frame))
+
     def stage1_per_keyframe_scan(self, keyframes_dict: Dict[str, KeyframeSpec], 
                                 constraints: List, 
                                 object_assignment: Dict[str, int],
@@ -232,6 +355,7 @@ class QueryCompiler:
         # Separate constraints by type
         self_anchored_always = {}
         
+        # For holding self-anchored always constraints (e.g. "always k1")
         for constraint in constraints:
             if constraint.kind == "always" and constraint.anchor is None:
                 self_anchored_always[constraint.target] = constraint
@@ -239,12 +363,16 @@ class QueryCompiler:
         # For each keyframe, scan all frames
         for kf_name, kf_spec in keyframes_dict.items():
             frame_candidates = []
-            print(f"    Scanning keyframe '{kf_name}' …")
             
-            frame_indices = range(min_frame, max_frame + 1)
-
-            # Scan selected frames only
-            for frame_idx in frame_indices:
+            # Scan each frame in the valid range
+            # Apply coverage subsampling by fixed stride to ensure even coverage
+            total_frames = max_frame - min_frame + 1
+            if total_frames <= 0:
+                continue
+            if self.coverage <= 0.0:
+                continue
+            stride = max(1, int(round(1.0 / self.coverage)))
+            for frame_idx in range(min_frame, max_frame + 1, stride):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
                 # Single frame window by default
@@ -254,6 +382,24 @@ class QueryCompiler:
                     always_constraint = self_anchored_always[kf_name]
                     duration_frames = self.seconds_to_frames(always_constraint.duration_sec)
                     frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
+                
+                # Per-atom selectivity tracking
+                if self.track_stats:
+                    atoms = self._collect_atoms(kf_spec.where)
+                    for atom in atoms:
+                        key = f"{kf_name}:{atom.type}:{atom.obj}:{atom.other_obj}:{atom.value}:{atom.tol}:{atom.label}"
+                        if key not in self.predicate_stats:
+                            self.predicate_stats[key] = {'tested': 0, 'positive': 0, 'sum_score': 0.0}
+                        try:
+                            atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
+                        except Exception:
+                            atom_score = 0.0
+                        self.predicate_stats[key]['tested'] += 1
+                        # Treat any positive score as a hit
+                        if isinstance(atom_score, (int, float)) and atom_score > 0:
+                            self.predicate_stats[key]['positive'] += 1
+                        if isinstance(atom_score, (int, float)):
+                            self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
                 score = self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
@@ -283,6 +429,9 @@ class QueryCompiler:
             time_shift_ok = abs(actual_shift - expected_shift) <= tolerance
             
             if not time_shift_ok:
+                # track rejection
+                if hasattr(self, 'reject_counters'):
+                    self.reject_counters['interframe'] += 1
                 return False
             
             # Check comparators if present
@@ -300,6 +449,8 @@ class QueryCompiler:
             target_pos = positions.get(constraint.target)
             
             if anchor_pos is None or target_pos is None:
+                if hasattr(self, 'reject_counters'):
+                    self.reject_counters['cross_always'] += 1
                 return False
             
             # The target should be satisfied for the duration starting from anchor
@@ -308,8 +459,13 @@ class QueryCompiler:
             
             target_kf = keyframes_dict.get(constraint.target)
             if target_kf:
-                return self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
+                ok = self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
+                if not ok and hasattr(self, 'reject_counters'):
+                    self.reject_counters['cross_always'] += 1
+                return ok
             
+            if hasattr(self, 'reject_counters'):
+                self.reject_counters['cross_always'] += 1
             return False
         
         return False
@@ -364,24 +520,31 @@ class QueryCompiler:
             
             udf_func = self.all_udfs[atom.type]
             
-            # Build arguments based on the predicate type
-            args = []
+            # Get parameter mapping from registry
+            param_mapping = self.registry.get_udf_param_mapping(atom.type)
             
-            # Add value parameter if present
-            if atom.value is not None:
-                args.append(atom.value)
+            # Build keyword arguments based on UDF's parameter mapping
+            kwargs = {}
             
-            # Add tolerance if present
-            # if atom.tol is not None:
-            #     args.append(atom.tol)
+            # Map atom attributes to UDF parameters based on metadata
+            atom_values = {
+                'value': atom.value,
+                'tol': atom.tol,
+                'bbox': atom.bbox,
+                'label': atom.label
+            }
             
-            # Handle bbox predicates
-            # if atom.bbox is not None:
-            #     args.extend(atom.bbox) 
-            
-            # Handle action predicates
-            # if atom.label is not None:
-            #     args.append(atom.label)
+            # Build kwargs using the parameter names from the UDF signature
+            for param_name, atom_attr in param_mapping.items():
+                atom_val = atom_values.get(atom_attr)
+                if atom_val is not None:
+                    # Special handling for bbox which is a tuple - still needs unpacking
+                    if atom_attr == 'bbox':
+                        # For bbox, we'd need to know the param names (x1, y1, x2, y2)
+                        # For now, skip bbox in kwargs - this is a TODO if needed
+                        pass
+                    else:
+                        kwargs[param_name] = atom_val
 
             # Get actual track_id from alias
             resolved_obj = resolve_object_alias(atom.obj, object_assignment)
@@ -390,10 +553,14 @@ class QueryCompiler:
             if atom.other_obj is not None:
                 resolved_other_obj = resolve_object_alias(atom.other_obj, object_assignment)
                 # For pairwise predicates, we need to pass both object assignments
-                result = udf_func(resolved_obj, resolved_other_obj, *args, frame_window)
+                # Add frame_window to kwargs and pass all as keyword arguments
+                kwargs['frame_window'] = frame_window
+                result = udf_func(resolved_obj, resolved_other_obj, **kwargs)
             else:
                 # Single object predicates
-                result = udf_func(resolved_obj, *args, frame_window)
+                # Add frame_window to kwargs and pass all as keyword arguments
+                kwargs['frame_window'] = frame_window
+                result = udf_func(resolved_obj, **kwargs)
 
             # Assume UDF returns a score between 0 and 1, or a boolean
             if isinstance(result, bool):
@@ -404,5 +571,14 @@ class QueryCompiler:
                 raise ValueError(f"UDF returned unsupported type: {type(result)}")
 
         except Exception as e:
-            print(f"Error evaluating predicate atom '{atom.type}': {e}")
+            self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
             return False
+
+    def _collect_atoms(self, expr: PredicateExpr) -> List[PredicateAtom]:
+        if expr.op == "ATOM" and expr.atom is not None:
+            return [expr.atom]
+        atoms: List[PredicateAtom] = []
+        if expr.args:
+            for sub in expr.args:
+                atoms.extend(self._collect_atoms(sub))
+        return atoms
