@@ -1,4 +1,4 @@
-import pickle
+t dimport pickle
 import numpy as np
 import pandas as pd
 import argparse
@@ -10,16 +10,15 @@ from specs import print_spec_details
 # Example usage
 def example_usage():
     # Sample data
-    df = pd.read_csv('dataset/scene-0357_899_ego.jsonl.csv')
-
+    df = pd.read_csv('dataset/scene_scene-0225.csv')
     # metadata path
-    metadata_path = "metadata/scene-0357_899_ego.jsonl_stats.json"
+    metadata_path = "metadata/scene_scene-0225_stats.json"
     
     # UDF registry
     registry = UDFRegistry(df)
 
     # Load a sample spec
-    spec = pickle.load(open("spec.pkl", "rb"))
+    spec = pickle.load(open("spec_modified.pkl", "rb"))
     print_spec_details(spec)
 
     

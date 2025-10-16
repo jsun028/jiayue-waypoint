@@ -51,16 +51,16 @@ class SelectivityIntegration:
     def _estimate_dist_within(self, obj_a, obj_b, threshold):
         """Fast approximate estimation by random sampling from dataset"""
         df = self.df.sample(frac=0.20, random_state=42)  # 20% sample
-        car = df[df["class_name"] == "car"][["x1", "y1"]].to_numpy()
+        veh = df[df["class_name"] == "vehicle"][["x1", "y1"]].to_numpy()
         ped = df[df["class_name"] == "pedestrian"][["x1", "y1"]].to_numpy()
 
-        if len(car) == 0 or len(ped) == 0:
+        if len(veh) == 0 or len(ped) == 0:
             return 0.0
 
         # Compute pairwise distances for small sample
         dists = np.sqrt(
-            (car[:, None, 0] - ped[None, :, 0]) ** 2
-            + (car[:, None, 1] - ped[None, :, 1]) ** 2
+            (veh[:, None, 0] - ped[None, :, 0]) ** 2
+            + (veh[:, None, 1] - ped[None, :, 1]) ** 2
         )
         within = (dists < threshold).mean()
         return float(within)

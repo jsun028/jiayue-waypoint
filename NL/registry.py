@@ -12,7 +12,7 @@ class UDFRegistry:
         'velocity_below',
         'is_approaching',
         'is_separating',
-        'heading_diff_to',
+        # 'heading_diff_to',
     )
 
     _GLOBAL_FUNCTIONS: Dict[str, Callable] = {}

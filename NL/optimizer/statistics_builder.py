@@ -7,125 +7,169 @@ from datetime import datetime
 
 class KeyframeQLStatisticsBuilder:
     """
-    Build per-attribute statistics metadata for KeyframeQL datasets.
+    Build KeyframeQL statistics.
+    - Per-agent numeric attrs (incl. yaw) -> attribute_histograms
+    - Ego pose (ego_x, ego_y, ego_yaw) -> metadata["ego"] with compact histograms (no raw trajectory)
     """
 
-    def __init__(self, dataset_path, bins=20, sample_ratio=1.0):
+    def __init__(self, dataset_path, bins=20, sample_ratio=1.0, ego_bins=10):
         self.dataset_path = Path(dataset_path)
         self.bins = bins
         self.sample_ratio = sample_ratio
+        self.ego_bins = ego_bins
         self.df = None
         self.metadata = {}
 
     # ------------------------------
-    # Step 1. Load & Preprocess
+    # Load & preprocess
     # ------------------------------
     def load_dataset(self):
         df = pd.read_csv(self.dataset_path)
         if self.sample_ratio < 1.0:
             df = df.sample(frac=self.sample_ratio, random_state=42)
 
-        # derived attributes
-        df["velocity_mag"] = np.sqrt(df["vel_x"] ** 2 + df["vel_y"] ** 2)
-        df["bbox_area"] = (df["x2"] - df["x1"]) * (df["y2"] - df["y1"])
-        df["heading_angle"] = np.arctan2(df["heading_y"], df["heading_x"])
+        # velocity magnitude (if available)
+        if {"vel_x", "vel_y"}.issubset(df.columns):
+            df["velocity_mag"] = np.sqrt(df["vel_x"] ** 2 + df["vel_y"] ** 2)
+        else:
+            df["velocity_mag"] = np.nan
+
+        # bbox area (if available)
+        if {"x1", "y1", "x2", "y2"}.issubset(df.columns):
+            df["bbox_area"] = (df["x2"] - df["x1"]) * (df["y2"] - df["y1"])
+        else:
+            df["bbox_area"] = np.nan
+
+        # yaw: use agent_yaw exclusively; normalize to [-pi, pi]
+        if "agent_yaw" in df.columns:
+            yaw = ((df["agent_yaw"] + np.pi) % (2 * np.pi)) - np.pi
+            df["yaw"] = yaw.astype(float)
+        else:
+            df["yaw"] = np.nan
 
         self.df = df
         return self
 
     # ------------------------------
-    # Step 2. Aggregations
+    # Quantile histogram (general)
     # ------------------------------
-    # def _histogram(self, series):
-    #     """
-    #     Build equal-width (linear-spaced) histogram.
-    #     """
-    #     counts, edges = np.histogram(series, bins=self.bins)
-    #     return {
-    #         "bins": edges.round(4).tolist(),
-    #         "counts": counts.tolist(),
-    #     }
-    def _histogram(self, series):
-        """
-        Build equal-frequency (quantile-based) histogram.
-
-        Each bin contains approximately the same number of samples,
-        ensuring non-empty selectivity buckets for interactive queries.
-        """
-        # Drop NaN or invalid values
-        series = series.dropna().to_numpy()
+    def _histogram(self, series, bins):
+        series = pd.Series(series).dropna().to_numpy()
         n = len(series)
         if n == 0:
             return {"bins": [], "counts": []}
 
-        # compute quantile breakpoints
-        quantiles = np.linspace(0, 1, self.bins + 1)
+        # all-equal guard
+        if np.all(series == series[0]):
+            return {"bins": [float(series[0]), float(series[0])], "counts": [n]}
+
+        quantiles = np.linspace(0, 1, bins + 1)
         edges = np.quantile(series, quantiles)
+        edges = np.unique(edges)
+        if len(edges) < 2:
+            edges = np.array([series.min(), series.max()])
 
-        # count how many values fall into each quantile bin
         counts = np.histogram(series, bins=edges)[0]
-
-        # small safeguard: avoid zeros by enforcing at least 1 sample per bin
         counts = np.maximum(counts, 1)
 
-        return {
-            "bins": np.round(edges, 5).tolist(),
-            "counts": counts.tolist(),
-        }
+        return {"bins": np.round(edges, 5).tolist(), "counts": counts.tolist()}
 
+    # ------------------------------
+    # Compute stats
+    # ------------------------------
     def compute_statistics(self):
         df = self.df
-        n_frames = df["frame_index"].nunique()
+        n_frames = df["frame_index"].nunique() if "frame_index" in df.columns else None
         n_objects = len(df)
 
-        # 1. class-level summary
-        class_stats = (
-            df.groupby("class_name")
-            .agg(
-                total_objects=("track_id", "count"),
-                avg_velocity=("velocity_mag", "mean"),
-                avg_area=("bbox_area", "mean"),
+        # class-level summary
+        if "class_name" in df.columns and "track_id" in df.columns:
+            class_stats = (
+                df.groupby("class_name")
+                .agg(
+                    total_objects=("track_id", "count"),
+                    avg_velocity=("velocity_mag", "mean"),
+                    avg_area=("bbox_area", "mean"),
+                )
+                .reset_index()
             )
-            .reset_index()
-        )
-        class_stats["ratio"] = (
-            class_stats["total_objects"] / class_stats["total_objects"].sum()
-        )
+            class_stats["ratio"] = class_stats["total_objects"] / class_stats["total_objects"].sum()
+            class_dist = class_stats.set_index("class_name").round(4).to_dict(orient="index")
+        else:
+            class_dist = {}
 
-        # 2. attribute histograms
-        attr_hist = {
-            "velocity_mag": self._histogram(df["velocity_mag"]),
-            "bbox_area": self._histogram(df["bbox_area"]),
-            "heading_angle": self._histogram(df["heading_angle"]),
-            "x1": self._histogram(df["x1"]),
-            "y1": self._histogram(df["y1"]),
-        }
+        # per-agent attribute histograms
+        attr_hist = {}
+        for col in ["velocity_mag", "bbox_area", "yaw", "x1", "y1"]:
+            if col in df.columns:
+                attr_hist[col] = self._histogram(df[col], bins=self.bins)
 
-        # 3. frame-level aggregation
-        frame_density = (
-            df.groupby("frame_index")
-            .agg(objects_per_frame=("track_id", "count"))
-            .objects_per_frame
-            .describe()
-            .to_dict()
-        )
+        # frame density
+        if "frame_index" in df.columns and "track_id" in df.columns:
+            frame_density = (
+                df.groupby("frame_index")
+                .agg(objects_per_frame=("track_id", "count"))
+                .objects_per_frame
+                .describe()
+                .to_dict()
+            )
+            frame_density = {k: float(v) for k, v in frame_density.items()}
+        else:
+            frame_density = {}
 
-        # 4. pack metadata
+        # EGO metadata as histograms (no raw per-frame data)
+        ego_meta = {}
+        if "frame_index" in df.columns and {"ego_x", "ego_y", "ego_yaw"}.issubset(df.columns):
+            # collapse to one row per frame to avoid object-multiplicity bias
+            ego_df = (
+                df.sort_values(["frame_index"])
+                  .groupby("frame_index")[["ego_x", "ego_y", "ego_yaw"]]
+                  .first()
+                  .reset_index(drop=True)
+            )
+            # normalize ego_yaw to [-pi, pi] for histogram stability
+            ego_df["ego_yaw"] = ((ego_df["ego_yaw"] + np.pi) % (2 * np.pi)) - np.pi
+
+            ego_hist = {
+                "ego_x": self._histogram(ego_df["ego_x"], bins=self.ego_bins),
+                "ego_y": self._histogram(ego_df["ego_y"], bins=self.ego_bins),
+                "ego_yaw": self._histogram(ego_df["ego_yaw"], bins=self.ego_bins),
+            }
+            # small summary stats (handy for UI / sanity checks)
+            ego_summary = {
+                "n_frames": int(len(ego_df)),
+                "means": {
+                    "ego_x": float(np.nanmean(ego_df["ego_x"])),
+                    "ego_y": float(np.nanmean(ego_df["ego_y"])),
+                    "ego_yaw": float(np.nanmean(ego_df["ego_yaw"])),
+                },
+                "mins": {
+                    "ego_x": float(np.nanmin(ego_df["ego_x"])),
+                    "ego_y": float(np.nanmin(ego_df["ego_y"])),
+                    "ego_yaw": float(np.nanmin(ego_df["ego_yaw"])),
+                },
+                "maxs": {
+                    "ego_x": float(np.nanmax(ego_df["ego_x"])),
+                    "ego_y": float(np.nanmax(ego_df["ego_y"])),
+                    "ego_yaw": float(np.nanmax(ego_df["ego_yaw"])),
+                },
+            }
+            ego_meta = {"histograms": ego_hist, "summary": ego_summary}
+
         self.metadata = {
             "dataset_name": self.dataset_path.stem,
-            "n_frames": int(n_frames),
+            "n_frames": int(n_frames) if n_frames is not None else None,
             "n_objects": int(n_objects),
-            "class_distribution": class_stats.set_index("class_name")
-            .round(4)
-            .to_dict(orient="index"),
-            "attribute_histograms": attr_hist,
-            "frame_density": {k: float(v) for k, v in frame_density.items()},
+            "class_distribution": class_dist,
+            "attribute_histograms": attr_hist,  # includes 'yaw'
+            "frame_density": frame_density,
+            "ego": ego_meta,                     # histograms + summary only
             "last_updated": datetime.utcnow().isoformat(),
         }
         return self
 
     # ------------------------------
-    # Step 3. Persist metadata
+    # Persist
     # ------------------------------
     def save_metadata(self, out_dir="metadata"):
         out_path = Path(out_dir)
@@ -138,19 +182,22 @@ class KeyframeQLStatisticsBuilder:
 
 
 # ------------------------------------------------------
-# CLI Usage Example
+# CLI
 # ------------------------------------------------------
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build KeyframeQL Statistics")
+    parser = argparse.ArgumentParser(description="Build KeyframeQL Statistics (yaw-only, ego hists)")
     parser.add_argument("--dataset", required=True, help="path to CSV dataset")
-    parser.add_argument("--bins", type=int, default=20)
+    parser.add_argument("--bins", type=int, default=20, help="per-agent histogram bins")
+    parser.add_argument("--ego_bins", type=int, default=8, help="ego histogram bins")
     parser.add_argument("--sample_ratio", type=float, default=1.0)
     args = parser.parse_args()
 
     builder = (
-        KeyframeQLStatisticsBuilder(args.dataset, bins=args.bins, sample_ratio=args.sample_ratio)
+        KeyframeQLStatisticsBuilder(
+            args.dataset, bins=args.bins, sample_ratio=args.sample_ratio, ego_bins=args.ego_bins
+        )
         .load_dataset()
         .compute_statistics()
     )
