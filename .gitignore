@@ -51,4 +51,6 @@ config.local.py
 .env
 .env.*
 
+
+*.gif
 *.pkl
