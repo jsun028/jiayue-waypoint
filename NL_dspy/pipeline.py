@@ -6,12 +6,13 @@ import inspect
 import json
 import pickle
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Any
 
 import dspy
 
 from NL.registry import GLOBAL_UDF_REGISTRY
 from NL.specs import QuerySpec, PredicateAtom, PredicateExpr
+from NL_dspy.stats_prompt import format_stats_for_prompt  # re-export convenience
 
 
 PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for the keyframe query engine.
@@ -20,9 +21,8 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Output ONLY valid JSON; no markdown code fences or commentary.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
-- Prefer velocity_above(0.4) for "moving" and velocity_below(0.25) for "stopped".
 - For "right turn" events, add a trajectory constraint with template="right_arc".
- - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
+- Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
@@ -221,6 +221,9 @@ def _format_available_udfs_for_prompt(available_udfs: Iterable[object]) -> list[
     return sorted(formatted)
 
 
+# Note: format_stats_for_prompt is imported from NL_dspy.stats_prompt
+
+
 class SpecGenerator(dspy.Module):
     """Generate a raw JSON string spec using a single DSPy predictor."""
 
@@ -235,7 +238,13 @@ class SpecGenerator(dspy.Module):
         if self.verbose:
             print(f"[DSPy][Generate] {message}")
 
-    def _compose_prompt(self, nl_request: str, available_udfs: Iterable[str]) -> str:
+    def _compose_prompt(
+        self,
+        nl_request: str,
+        available_udfs: Iterable[str],
+        *,
+        stats_text: Optional[str] = None,
+    ) -> str:
         # TODO: We can probably make this an optimizer task (like GEPA)
         formatted = sorted(available_udfs)
         if formatted:
@@ -244,16 +253,28 @@ class SpecGenerator(dspy.Module):
             available = " (none)"
         header = PROMPT_HEADER.format(available_udfs=available)
         fewshot = _json_dumps(FEWSHOT_JSON)
+        stats_block = (
+            f"\n\nDataset statistics (for grounding):\n{stats_text}\n"
+            if stats_text
+            else ""
+        )
         return (
             f"{header}\n\n"
             f"Example NL description:\n{FEWSHOT_USER}\n\n"
-            f"Example JSON spec:\n{fewshot}\n\n"
+            f"Example JSON spec:\n{fewshot}"
+            f"{stats_block}\n\n"
             "Now respond to the new request. Return JSON ONLY."
             f"\n\nUser request:\n{nl_request}\n"
         )
 
-    def forward(self, nl_request: str, available_udfs: Iterable[str]):
-        prompt = self._compose_prompt(nl_request, available_udfs)
+    def forward(
+        self,
+        nl_request: str,
+        available_udfs: Iterable[str],
+        *,
+        stats_text: Optional[str] = None,
+    ):
+        prompt = self._compose_prompt(nl_request, available_udfs, stats_text=stats_text)
         self._log("Submitting prompt to language model...\n\n"+prompt)
         prediction = self.generator(prompt=prompt)
         self._log("Received raw response from language model")
@@ -341,6 +362,8 @@ class NLToQuerySpecPipeline(dspy.Module):
         self,
         nl_request: str,
         available_udfs: Optional[Iterable[str]] = None,
+        *,
+        stats_text: Optional[str] = None,
     ) -> QuerySpec:
         self._log("Starting NL → QuerySpec translation")
         if available_udfs is None:
@@ -357,6 +380,7 @@ class NLToQuerySpecPipeline(dspy.Module):
         raw_json = self.generator(
             nl_request=nl_request,
             available_udfs=available_for_prompt,
+            stats_text=stats_text,
         )
         self._log("Generation complete, parsing …")
         spec = self.parser(raw_json)
@@ -398,7 +422,12 @@ class PipelineResult:
     spec_json: str
 
 
-def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = None) -> PipelineResult:
+def run_pipeline(
+    nl_request: str,
+    pipeline: Optional[NLToQuerySpecPipeline] = None,
+    *,
+    stats_text: Optional[str] = None,
+) -> PipelineResult:
     """Utility for scripts/tests to obtain both the spec object and JSON string."""
 
     pipeline = pipeline or build_pipeline()
@@ -406,7 +435,11 @@ def run_pipeline(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = No
         GLOBAL_UDF_REGISTRY.get_all_udfs().keys()
     )
     print("[DSPy][Run] Executing pipeline with default configuration …")
-    raw_json = pipeline.generator(nl_request=nl_request, available_udfs=available)
+    raw_json = pipeline.generator(
+        nl_request=nl_request,
+        available_udfs=available,
+        stats_text=stats_text,
+    )
     spec = pipeline.parser(raw_json)
     spec = pipeline.semantic_checker(spec)
     print("[DSPy][Run] Done")

@@ -3,6 +3,7 @@ import numpy as np
 
 class SelectivityIntegration:
     def __init__(self, metadata_path, df):
+        # Allow None for metadata_path; estimator will fall back to empty stats
         self.est = SelectivityEstimator(metadata_path)
         self.df = df  # for sampling-based estimation (dist_within_two_obj)
 
@@ -13,19 +14,15 @@ class SelectivityIntegration:
         def handle_atom(atom):
             t = atom.type
             if t == "velocity_above":
-                sel = self.est._hist_fraction(
-                    self.est.stats["attribute_histograms"]["velocity_mag"],
-                    threshold=atom.value,
-                    op=">",
-                )
-                return sel
+                hist = (self.est.stats.get("attribute_histograms") or {}).get("velocity_mag")
+                if not hist:
+                    return 1.0
+                return self.est._hist_fraction(hist, threshold=atom.value, op=">")
             elif t == "velocity_below":
-                sel = self.est._hist_fraction(
-                    self.est.stats["attribute_histograms"]["velocity_mag"],
-                    threshold=atom.value,
-                    op="<",
-                )
-                return sel
+                hist = (self.est.stats.get("attribute_histograms") or {}).get("velocity_mag")
+                if not hist:
+                    return 1.0
+                return self.est._hist_fraction(hist, threshold=atom.value, op="<")
             elif t == "dist_within_two_obj":
                 return self._estimate_dist_within(atom.obj, atom.other_obj, atom.value)
             else:

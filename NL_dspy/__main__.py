@@ -57,6 +57,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to write the QuerySpec pickle (compatible with NL/main.py).",
     )
+    stats = parser.add_argument_group("dataset statistics")
+    stats.add_argument(
+        "--generate-stats",
+        action="store_true",
+        help="Compute statistics in-memory and include in the prompt.",
+    )
+    stats.add_argument(
+        "--stats-sample",
+        type=float,
+        default=1.0,
+        help="Sample ratio in (0,1] when generating stats.",
+    )
     return parser.parse_args()
 
 
@@ -70,8 +82,42 @@ def main() -> None:
     print("[DSPy][CLI] Building pipeline …")
     pipeline = build_pipeline(temperature=args.temperature)
 
+    # Prepare optional stats text
+    stats_text = None
+    if args.generate_stats:
+        try:
+            # Resolve dataset CSV path via env or a common default
+            dataset_csv = (
+                os.getenv("KEYFRAME_DATASET_CSV")
+                or os.getenv("DATASET_CSV")
+                or str((pkg_root.parent / "dataset" / "scene_scene-0225.csv"))
+            )
+            if not os.path.exists(dataset_csv):
+                raise FileNotFoundError(
+                    f"Dataset CSV not found: {dataset_csv}. Set KEYFRAME_DATASET_CSV or DATASET_CSV."
+                )
+
+            from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
+            builder = KeyframeQLStatisticsBuilder(
+                dataset_csv,
+                bins=20,
+                sample_ratio=float(args.stats_sample),
+                ego_bins=8,
+            ).load_dataset().compute_statistics()
+            stats_meta = builder.metadata
+
+            if __package__ in {None, ""}:
+                from NL_dspy.stats_prompt import format_stats_for_prompt  # type: ignore
+            else:
+                from .stats_prompt import format_stats_for_prompt
+            stats_text = format_stats_for_prompt(stats_meta)
+            print("[DSPy][CLI] Generated dataset statistics for prompt grounding")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(f"Failed to generate statistics: {exc}")
+            print("[DSPy][CLI] Proceeding without statistics due to error.")
+
     print("[DSPy][CLI] Running pipeline …")
-    result = run_pipeline(args.nl, pipeline)
+    result = run_pipeline(args.nl, pipeline, stats_text=stats_text)
 
     print("=== QuerySpec (pydantic) ===")
     print(result.spec)
