@@ -32,6 +32,7 @@ class PredicateAtom(BaseModel):
     tol: Optional[float | DiscreteSlider] = None
     bbox: Optional[Tuple[float, float, float, float]] = None
     label: Optional[str] = None  # e.g. action label
+    mode: Optional[str|int] = None
 
 class PredicateExpr(BaseModel):
     # Boolean expression is expressed as a tree (AND/OR/NOT) over atoms.

@@ -671,7 +671,8 @@ class QueryCompiler:
                 'value': atom.value,
                 'tol': atom.tol,
                 'bbox': atom.bbox,
-                'label': atom.label
+                'label': atom.label,
+                'mode': atom.mode,
             }
             
             # Build kwargs using the parameter names from the UDF signature
