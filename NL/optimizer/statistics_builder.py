@@ -117,6 +117,60 @@ class KeyframeQLStatisticsBuilder:
         else:
             frame_density = {}
 
+        # Pairwise distances within each frame (sampled)
+        pairwise_hist = {"bins": [], "counts": []}
+        if "frame_index" in df.columns:
+            # choose coordinates: bbox center if available, else (x1, y1)
+            if {"x1", "y1", "x2", "y2"}.issubset(df.columns):
+                df_coords = df.assign(
+                    _cx=(df["x1"] + df["x2"]) / 2.0,
+                    _cy=(df["y1"] + df["y2"]) / 2.0,
+                )
+                coord_cols = ["_cx", "_cy"]
+            elif {"x1", "y1"}.issubset(df.columns):
+                df_coords = df.rename(columns={"x1": "_cx", "y1": "_cy"})
+                coord_cols = ["_cx", "_cy"]
+            else:
+                df_coords = None
+                coord_cols = []
+
+            if df_coords is not None:
+                rng = np.random.default_rng(42)
+                all_dists = []
+                for _, g in df_coords.groupby("frame_index"):
+                    pts = g[coord_cols].to_numpy(dtype=float, copy=False)
+                    n = len(pts)
+                    if n < 2:
+                        continue
+                    # sample up to max_pairs distances per frame to cap cost
+                    max_pairs = 200
+                    # number of unique pairs
+                    total_pairs = n * (n - 1) // 2
+                    if total_pairs <= max_pairs:
+                        # compute full upper-tri distances
+                        diffs = pts[:, None, :] - pts[None, :, :]
+                        dists = np.sqrt((diffs ** 2).sum(axis=2))
+                        iu = np.triu_indices(n, 1)
+                        all_dists.extend(dists[iu].tolist())
+                    else:
+                        # random sample of unique pairs
+                        # generate random indices (i<j)
+                        idx_i = rng.integers(0, n - 1, size=max_pairs)
+                        idx_j = rng.integers(0, n - 1, size=max_pairs)
+                        # enforce i<j and non-equal; fix by swapping or incrementing
+                        for i in range(max_pairs):
+                            a = int(idx_i[i])
+                            b = int(idx_j[i])
+                            if a == b:
+                                b = (b + 1) % n
+                            if a > b:
+                                a, b = b, a
+                            dx = pts[a, 0] - pts[b, 0]
+                            dy = pts[a, 1] - pts[b, 1]
+                            all_dists.append(float(np.sqrt(dx * dx + dy * dy)))
+                if all_dists:
+                    pairwise_hist = self._histogram(all_dists, bins=self.bins)
+
         # EGO metadata as histograms (no raw per-frame data)
         ego_meta = {}
         if "frame_index" in df.columns and {"ego_x", "ego_y", "ego_yaw"}.issubset(df.columns):
@@ -163,6 +217,7 @@ class KeyframeQLStatisticsBuilder:
             "class_distribution": class_dist,
             "attribute_histograms": attr_hist,  # includes 'yaw'
             "frame_density": frame_density,
+            "pairwise_distance_histogram": pairwise_hist,
             "ego": ego_meta,                     # histograms + summary only
             "last_updated": datetime.utcnow().isoformat(),
         }

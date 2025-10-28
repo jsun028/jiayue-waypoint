@@ -9,10 +9,18 @@ class SelectivityEstimator:
     and estimate selectivity and cost for query predicates.
     """
 
-    def __init__(self, metadata_path):
-        self.metadata_path = Path(metadata_path)
-        with open(self.metadata_path, "r") as f:
-            self.stats = json.load(f)
+    def __init__(self, metadata_path=None):
+        """Initialize with optional metadata path.
+
+        If no path is provided, fall back to empty stats so callers can still
+        estimate with neutral defaults.
+        """
+        self.stats = {"attribute_histograms": {}, "class_distribution": {}, "n_objects": 0}
+        self.metadata_path = None
+        if metadata_path:
+            self.metadata_path = Path(metadata_path)
+            with open(self.metadata_path, "r") as f:
+                self.stats = json.load(f)
 
     # ---------------------------------
     # Helper: histogram fraction
