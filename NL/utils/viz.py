@@ -57,8 +57,8 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
         # Precompute fixed axis limits over the animation window to avoid jank
         df_range = df[df['frame_index'].between(start_f, end_f)]
         try:
-            all_x = pd.concat([df_range['x1'], df_range['x2'], df_range['ego_x']])
-            all_y = pd.concat([df_range['y1'], df_range['y2'], df_range['ego_y']])
+            all_x = pd.concat([df_range['x1'], df_range['x2']])
+            all_y = pd.concat([df_range['y1'], df_range['y2']])
             margin = 20
             xlim = (float(all_x.min()) - margin, float(all_x.max()) + margin)
             ylim = (float(all_y.min()) - margin, float(all_y.max()) + margin)

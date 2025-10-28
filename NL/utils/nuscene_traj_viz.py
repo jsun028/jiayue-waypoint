@@ -43,17 +43,13 @@ def plot_bev_snapshot(
                 ha='center', va='center', transform=ax.transAxes)
         return ax
     
-    # Get ego position
-    ego_x = frame_data['ego_x'].iloc[0]
-    ego_y = frame_data['ego_y'].iloc[0]
-    ego_yaw = frame_data['ego_yaw'].iloc[0]
-    
     # Color mapping for different classes
     class_colors = {
         'vehicle': 'blue',
         'pedestrian': 'green',
         'bicycle': 'orange',
         'motorcycle': 'purple',
+        'ego': 'red',
         'unknown': 'gray'
     }
     
@@ -167,25 +163,6 @@ def plot_bev_snapshot(
                 hist_y = [(row['y1'] + row['y2']) / 2 for _, row in history_data.iterrows()]
                 ax.plot(hist_x, hist_y, color=color, alpha=0.3, linewidth=1, linestyle=':')
     
-    # Draw ego vehicle
-    ego_size = 4.0  # Approximate vehicle size
-    ego_rect = patches.Rectangle(
-        (ego_x - ego_size/2, ego_y - ego_size/2), ego_size, ego_size,
-        linewidth=3, edgecolor='red', facecolor='red', alpha=0.5
-    )
-    ax.add_patch(ego_rect)
-    
-    # Draw ego heading
-    ego_arrow_length = 6.0
-    ego_dx = ego_arrow_length * np.cos(ego_yaw)
-    ego_dy = ego_arrow_length * np.sin(ego_yaw)
-    ax.arrow(ego_x, ego_y, ego_dx, ego_dy,
-            head_width=2.0, head_length=1.5, fc='red', ec='red', linewidth=2)
-    
-    ax.text(ego_x, ego_y - 6, 'EGO', ha='center', va='top', 
-           fontsize=10, color='white', weight='bold',
-           bbox=dict(boxstyle='round', facecolor='red', alpha=0.8))
-    
     # Set axis properties
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
@@ -231,8 +208,20 @@ def plot_full_trajectories(
     if track_ids is None:
         track_ids = df['track_id'].unique()
     
+    # Exclude ego from general plotting if we'll plot it specially
+    if show_ego:
+        non_ego_track_ids: List[int] = []
+        for tid in track_ids:
+            agent_data_tmp = df[df['track_id'] == tid]
+            if len(agent_data_tmp) == 0:
+                continue
+            if agent_data_tmp['class_name'].iloc[0] != 'ego':
+                non_ego_track_ids.append(tid)
+    else:
+        non_ego_track_ids = list(track_ids)
+    
     # Plot each agent's trajectory
-    for track_id in track_ids:
+    for track_id in non_ego_track_ids:
         agent_data = df[df['track_id'] == track_id].sort_values('frame_index')
         
         if len(agent_data) == 0:
@@ -259,13 +248,16 @@ def plot_full_trajectories(
     
     # Plot ego trajectory
     if show_ego:
-        ego_data = df.drop_duplicates('frame_index').sort_values('frame_index')
-        ax.plot(ego_data['ego_x'], ego_data['ego_y'], 
-               color='red', linewidth=3, alpha=0.8, label='Ego Vehicle', linestyle='--')
-        ax.scatter(ego_data['ego_x'].iloc[0], ego_data['ego_y'].iloc[0],
-                  color='red', s=150, marker='o', edgecolors='black', linewidth=2, zorder=5)
-        ax.scatter(ego_data['ego_x'].iloc[-1], ego_data['ego_y'].iloc[-1],
-                  color='red', s=150, marker='s', edgecolors='black', linewidth=2, zorder=5)
+        ego_data = df[df['class_name'] == 'ego'].sort_values('frame_index')
+        if len(ego_data) > 0:
+            ego_centers_x = (ego_data['x1'] + ego_data['x2']) / 2
+            ego_centers_y = (ego_data['y1'] + ego_data['y2']) / 2
+            ax.plot(ego_centers_x, ego_centers_y,
+                   color='red', linewidth=3, alpha=0.8, label='Ego Vehicle', linestyle='--')
+            ax.scatter(ego_centers_x.iloc[0], ego_centers_y.iloc[0],
+                      color='red', s=150, marker='o', edgecolors='black', linewidth=2, zorder=5)
+            ax.scatter(ego_centers_x.iloc[-1], ego_centers_y.iloc[-1],
+                      color='red', s=150, marker='s', edgecolors='black', linewidth=2, zorder=5)
     
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
@@ -303,8 +295,8 @@ def create_animation(
         plot_bev_snapshot(df, frames[frame_idx], ax, show_velocity, show_history)
         
         # Set consistent axis limits based on all data
-        all_x = pd.concat([df['x1'], df['x2'], df['ego_x']])
-        all_y = pd.concat([df['y1'], df['y2'], df['ego_y']])
+        all_x = pd.concat([df['x1'], df['x2']])
+        all_y = pd.concat([df['y1'], df['y2']])
         margin = 20
         ax.set_xlim(all_x.min() - margin, all_x.max() + margin)
         ax.set_ylim(all_y.min() - margin, all_y.max() + margin)

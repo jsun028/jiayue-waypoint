@@ -43,8 +43,7 @@ def format_stats_for_prompt(metadata: dict[str, Any], *, max_classes: int = 6) -
 
     # Attribute ranges and anchors
     attr_hist = metadata.get("attribute_histograms", {}) or {}
-    def fmt_attr(name: str, label: str) -> Optional[str]:
-        hist = attr_hist.get(name)
+    def _fmt_hist_line(hist: Optional[dict], label: str) -> Optional[str]:
         if not hist:
             return None
         bins = hist.get("bins", [])
@@ -63,6 +62,9 @@ def format_stats_for_prompt(metadata: dict[str, Any], *, max_classes: int = 6) -
         if p90 is not None:
             stats_parts.append(f"p90={p90:.3g}")
         return f"- {label}: " + ", ".join(stats_parts)
+
+    def fmt_attr(name: str, label: str) -> Optional[str]:
+        return _fmt_hist_line(attr_hist.get(name), label)
 
     attr_lines: list[str] = []
     maybe = [
@@ -93,6 +95,31 @@ def format_stats_for_prompt(metadata: dict[str, Any], *, max_classes: int = 6) -
             lines.append("Top classes (ratio):")
             for cname, ratio in items[:max_classes]:
                 lines.append(f"- {cname}: {ratio:.2%}")
+
+        # Per-class attribute stats for top classes
+        class_attr = metadata.get("class_attribute_histograms", {}) or {}
+        if isinstance(class_attr, dict) and class_attr and items:
+            per_class_lines: list[str] = []
+            maybe = [
+                ("velocity_mag", "velocity_mag"),
+                ("bbox_area", "bbox_area"),
+                ("yaw", "yaw (rad)")
+            ]
+            for cname, _ in items[:max_classes]:
+                hists = class_attr.get(cname) or {}
+                if not hists:
+                    continue
+                class_lines: list[str] = []
+                for key, label in maybe:
+                    s = _fmt_hist_line(hists.get(key), label)
+                    if s:
+                        class_lines.append("  " + s)
+                if class_lines:
+                    per_class_lines.append(f"- {cname}:")
+                    per_class_lines.extend(class_lines)
+            if per_class_lines:
+                lines.append("Per-class attributes:")
+                lines.extend(per_class_lines)
 
     # Heuristic anchors for common predicates
     vel_hist = attr_hist.get("velocity_mag")
@@ -134,6 +161,26 @@ def format_stats_for_prompt(metadata: dict[str, Any], *, max_classes: int = 6) -
         p50 = _quantile_from_hist(pair_hist, 0.50)
         p75 = _quantile_from_hist(pair_hist, 0.75)
         lines.append("Pairwise distance (approximate):")
+        parts: list[str] = []
+        if p5 is not None:
+            parts.append(f"p5={p5:.3g}")
+        if p25 is not None:
+            parts.append(f"p25={p25:.3g}")
+        if p50 is not None:
+            parts.append(f"median={p50:.3g}")
+        if p75 is not None:
+            parts.append(f"p75={p75:.3g}")
+        if parts:
+            lines.append("- " + ", ".join(parts))
+
+    # Ego-to-agent distance guidance (optional)
+    ego_pair = metadata.get("ego_to_agent_distance_histogram") or {}
+    if isinstance(ego_pair, dict) and ego_pair.get("bins"):
+        p5 = _quantile_from_hist(ego_pair, 0.05)
+        p25 = _quantile_from_hist(ego_pair, 0.25)
+        p50 = _quantile_from_hist(ego_pair, 0.50)
+        p75 = _quantile_from_hist(ego_pair, 0.75)
+        lines.append("Ego-to-agent distance (approximate):")
         parts: list[str] = []
         if p5 is not None:
             parts.append(f"p5={p5:.3g}")

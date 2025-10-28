@@ -98,10 +98,43 @@ class QueryCompiler:
         keyframes_dict = {kf.name: kf for kf in query_spec.keyframes}
         
         # Find all possible object assignments (variable bindings)
+        # Special-case: if query specifies an 'ego' alias, bind it to the ego track and
+        # exclude it from enumeration so we only search the remaining n-1 agents.
+        aliases = getattr(query_spec.objects, 'aliases', {})
+        # Only one ego alias is expected; if present, pre-bind it and exclude from enumeration
+        ego_alias = next((a for a, info in aliases.items() if info.get('class') == 'ego'), None)
+
+        fixed_bindings: Dict[str, int] = {}
+        reduced_obj_spec = query_spec.objects
+
+        if ego_alias is not None:
+            # Discover ego track_id from data (fallback to 0)
+            try:
+                ego_tracks = self.df[self.df['class_name'] == 'ego']['track_id'].unique().tolist()
+                ego_track_id = int(ego_tracks[0]) if len(ego_tracks) > 0 else 0
+            except Exception:
+                ego_track_id = 0
+
+            fixed_bindings[ego_alias] = ego_track_id
+
+            # Build a lightweight object with only non-ego aliases for enumeration
+            filtered_aliases = {a: info for a, info in aliases.items() if a != ego_alias}
+
+            class _AliasOnly:
+                def __init__(self, aliases: Dict[str, Dict]):
+                    self.aliases = aliases
+
+            reduced_obj_spec = _AliasOnly(filtered_aliases)
+
         if getattr(query_spec, 'use_combinations', False):
-            object_assignments = generate_object_combinations(self.df, query_spec.objects)
+            object_assignments = generate_object_combinations(self.df, reduced_obj_spec)
         else:
-            object_assignments = generate_object_assignments(self.df, query_spec.objects)
+            object_assignments = generate_object_assignments(self.df, reduced_obj_spec)
+
+        # Merge fixed ego bindings into each assignment
+        if fixed_bindings:
+            for a in object_assignments:
+                a.update(fixed_bindings)
         
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):

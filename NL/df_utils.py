@@ -10,7 +10,8 @@ def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]
         'car': 'vehicle',
         'person': 'pedestrian',
         'bike': 'bicycle',
-        'motorcycle': 'motorcycle'
+        'motorcycle': 'motorcycle',
+        'ego': 'ego',
     }
 
     # Get available tracks for each object class

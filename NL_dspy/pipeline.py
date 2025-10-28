@@ -12,7 +12,6 @@ import dspy
 
 from NL.registry import GLOBAL_UDF_REGISTRY
 from NL.specs import QuerySpec, PredicateAtom, PredicateExpr
-from NL_dspy.stats_prompt import format_stats_for_prompt  # re-export convenience
 
 
 PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for the keyframe query engine.
@@ -21,11 +20,25 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Output ONLY valid JSON; no markdown code fences or commentary.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
-- For "right turn" events, add a trajectory constraint with template="right_arc".
+- For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
+- Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
 
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
+
+Constraint semantics (what the engine enforces):
+- always:
+  * Self-anchored: {"kind":"always", "anchor": null, "target": "kX", "duration_sec": D}
+    - Interpreted as: when evaluating keyframe kX at frame t, kX must hold continuously on [t, t+D].
+  * Cross-anchored: {"kind":"always", "anchor": "kA", "target": "kB", "duration_sec": D}
+    - Interpreted as: after kA occurs at frame tA, kB must be satisfied for all frames in [tA, tA+D].
+- interframe:
+  * {"kind":"interframe", "anchor": "kA", "target": "kB", "time_shift": S, "comparators": []}
+    - Interpreted as: the time difference between kA and kB is approximately S seconds.
+    - Timing tolerance: ±0.1 seconds.
+    - Comparators are reserved for future use; omit or leave empty.
+- Keyframe ordering: the engine only accepts strictly increasing keyframes in results (k1 < k2 < ...). Gaps must be within reasonable bounds.
 
 PredicateAtom construction guide:
 - Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
@@ -38,6 +51,11 @@ PredicateAtom construction guide:
 - You may propose a new predicate only if absolutely required.
 - Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
 - Do not use interframe constraints yet, they do not work.
+
+Other guidance:
+- Keep the number of objects minimal for the story; use the ego alias only when the NL explicitly refers to the ego vehicle (e.g., "ego nearly hits pedestrian").
+- Prefer agent-ego predicates (e.g., heading_diff_agent_to_ego) when relating an agent to the ego; use agent-agent predicates for agent pairs.
+- Don't be too restrictive with predicates/constraints, especially if we are chaining multiple keyframes. Mathematically you can imagine each constraint is a probability multiplier of the previous keyframe, meaning if the first keyframe is very unlikely, the entire query will be very unlikely.
 """
 
 
@@ -251,7 +269,7 @@ class SpecGenerator(dspy.Module):
             available = "\n  - " + "\n  - ".join(formatted)
         else:
             available = " (none)"
-        header = PROMPT_HEADER.format(available_udfs=available)
+        header = PROMPT_HEADER.replace("{available_udfs}", available)
         fewshot = _json_dumps(FEWSHOT_JSON)
         stats_block = (
             f"\n\nDataset statistics (for grounding):\n{stats_text}\n"
@@ -365,6 +383,19 @@ class NLToQuerySpecPipeline(dspy.Module):
         *,
         stats_text: Optional[str] = None,
     ) -> QuerySpec:
+        """Translate NL into a checked QuerySpec.
+
+        Constraint interpretation in downstream compiler:
+        - Self-anchored always: target keyframe must remain true over a contiguous window of
+          duration_sec starting at the candidate frame for that keyframe.
+        - Cross-anchored always: when anchor keyframe occurs at frame tA, target must hold for all
+          frames in [tA, tA + duration_sec].
+        - Interframe: target should occur approximately time_shift seconds after anchor, within
+          ±0.1s tolerance (comparators are currently ignored).
+        - Keyframes are enforced to be strictly increasing in time; extreme gaps are rejected.
+        - If an alias with class "ego" is present, it is pre-bound to the ego track and excluded from
+          object assignment enumeration.
+        """
         self._log("Starting NL → QuerySpec translation")
         if available_udfs is None:
             requested_udfs: list[object] = list(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())

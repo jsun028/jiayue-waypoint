@@ -30,7 +30,7 @@ else:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("nl", help="Natural language request to translate.")
+    parser.add_argument("--nl", help="Natural language request to translate.")
     parser.add_argument(
         "--model",
         default=os.getenv("DSPY_LM_MODEL", "openai/gpt-4o-mini"),
@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=float(os.getenv("DSPY_LM_TEMPERATURE", "0.0")),
+        default=float(os.getenv("DSPY_LM_TEMPERATURE", "1.0")),
         help="Sampling temperature for the LM.",
     )
     parser.add_argument(
@@ -90,7 +90,8 @@ def main() -> None:
             dataset_csv = (
                 os.getenv("KEYFRAME_DATASET_CSV")
                 or os.getenv("DATASET_CSV")
-                or str((pkg_root.parent / "dataset" / "scene_scene-0225.csv"))
+                # or str((pkg_root.parent / "dataset" / "scene_scene-0225.csv"))
+                or str((pkg_root.parent / "dataset" / "scene_scene-0297.csv"))
             )
             if not os.path.exists(dataset_csv):
                 raise FileNotFoundError(

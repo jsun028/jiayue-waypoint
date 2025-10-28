@@ -445,25 +445,27 @@ def {name}(*args, **kwargs) -> float:
         Returns:
             Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 if agent not present.
 
-        Needs columns `track_id`, `frame_index`, `agent_yaw`, `ego_yaw`.
+        Needs columns `track_id`, `frame_index`, `agent_yaw`. Ego is taken from rows with class_name=='ego' or track_id==0.
         """
         start, end = frame_window
         df_filtered = self.df[self.df['frame_index'].between(start, end)]
 
-        # Get agent data
-        agent_data = df_filtered[df_filtered['track_id'] == oid].set_index('frame_index')
-        
-        if agent_data.empty:
+        # Agent samples
+        agent_series = df_filtered[df_filtered['track_id'] == oid].set_index('frame_index')['agent_yaw']
+        if agent_series.empty:
             return 0.0
 
-        # Extract agent yaw and ego yaw (ego_yaw should be same for all agents in a frame)
-        agent_yaw = agent_data['agent_yaw']
-        ego_yaw = agent_data['ego_yaw']
+        # Ego samples: prefer track_id==0, fallback to class_name=='ego'
+        ego_mask = (df_filtered['track_id'] == 0) | (df_filtered.get('class_name', pd.Series(index=df_filtered.index, dtype=object)) == 'ego')
+        ego_series = df_filtered[ego_mask].drop_duplicates(subset=['frame_index']).set_index('frame_index')['agent_yaw']
 
-        # Calculate absolute heading difference
-        diff = np.degrees(np.abs(ego_yaw - agent_yaw)) % 360
+        # Align on common frames
+        common = pd.DataFrame({'agent_yaw': agent_series}).join(ego_series.rename('ego_yaw'), how='inner')
+        if common.empty:
+            return 0.0
+
+        diff = np.degrees(np.abs(common['ego_yaw'] - common['agent_yaw'])) % 360
         diff = np.where(diff > 180, 360 - diff, diff)
-        
         return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
 
 

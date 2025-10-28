@@ -384,25 +384,27 @@ def process_scene(
     
     print(f"  Found {len(sample_tokens)} samples/frames")
     
-    # Get ego poses for all frames
+    # Get ego poses for all frames and timestamps (for kinematics)
     ego_data = []
     for sample_token, frame_idx in frame_idx_dict.items():
         try:
             ego_pose = get_cam_front_ego_pose(sample_token, sample_data_list, ego_poses)
             ego_yaw = quaternion_to_yaw(ego_pose["rotation"])
+            ts = samples[sample_token]["timestamp"] / 1e6
             ego_data.append({
                 'frame_index': frame_idx,
-                'ego_x': ego_pose["translation"][0],
-                'ego_y': ego_pose["translation"][1],
-                'ego_yaw': ego_yaw
+                'x_center': ego_pose["translation"][0],
+                'y_center': ego_pose["translation"][1],
+                'agent_yaw': ego_yaw,
+                'timestamp': ts,
             })
         except ValueError as e:
             print(f"  Warning: {e}")
             continue
     
-    ego_df = pd.DataFrame(ego_data)
+    ego_pose_df = pd.DataFrame(ego_data)
     
-    if ego_df.empty:
+    if ego_pose_df.empty:
         print(f"  No ego poses found for scene {scene_name}")
         return global_track_id
     
@@ -460,26 +462,56 @@ def process_scene(
             
             processed_instances.add(instance_token)
     
-    # Combine all agent data
+    # Build ego rows as a dedicated track (track_id=0, class_name='ego')
+    ego_width = 2.0
+    ego_length = 4.5
+
+    ego_centers = ego_pose_df[['x_center', 'y_center']].to_numpy()
+    ego_timestamps = ego_pose_df['timestamp'].to_numpy()
+    ego_vel = calculate_velocities(ego_centers, ego_timestamps)
+    ego_vel = smooth_velocities(ego_vel)
+    ego_acc = calculate_accelerations(ego_vel, ego_timestamps)
+
+    ego_x1 = ego_pose_df['x_center'].to_numpy() - ego_length / 2
+    ego_y1 = ego_pose_df['y_center'].to_numpy() - ego_width / 2
+    ego_x2 = ego_pose_df['x_center'].to_numpy() + ego_length / 2
+    ego_y2 = ego_pose_df['y_center'].to_numpy() + ego_width / 2
+
+    ego_df = pd.DataFrame({
+        'frame_index': ego_pose_df['frame_index'].to_numpy(),
+        'track_id': 0,
+        'class_name': 'ego',
+        'confidence': 1.0,
+        'x1': ego_x1,
+        'y1': ego_y1,
+        'x2': ego_x2,
+        'y2': ego_y2,
+        'vel_x': ego_vel[:, 0],
+        'vel_y': ego_vel[:, 1],
+        'acc_x': ego_acc[:, 0],
+        'acc_y': ego_acc[:, 1],
+        'agent_yaw': ego_pose_df['agent_yaw'].to_numpy(),
+    })
+
+    # Combine all agent data + ego rows
+    combined_parts = []
     if agent_dfs:
-        all_agents_df = pd.concat(agent_dfs, ignore_index=True)
-        
-        # Merge with ego data
-        final_df = all_agents_df.merge(ego_df, on='frame_index', how='left')
-        
-        # Reorder columns
+        combined_parts.append(pd.concat(agent_dfs, ignore_index=True))
+    combined_parts.append(ego_df)
+
+    if combined_parts:
+        final_df = pd.concat(combined_parts, ignore_index=True)
+
         columns = [
             'frame_index', 'track_id', 'class_name', 'confidence',
             'x1', 'y1', 'x2', 'y2',
             'vel_x', 'vel_y', 'acc_x', 'acc_y',
-            'agent_yaw', 'ego_x', 'ego_y', 'ego_yaw'
+            'agent_yaw'
         ]
         final_df = final_df[columns]
-        
-        # Sort by frame_index and track_id
+
         final_df = final_df.sort_values(['frame_index', 'track_id']).reset_index(drop=True)
-        
-        # Save to CSV
+
         output_path = output_dir / f"scene_{scene_name}.csv"
         final_df.to_csv(output_path, index=False)
         print(f"Saved: {output_path} ({len(final_df)} rows)")

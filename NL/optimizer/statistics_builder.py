@@ -9,7 +9,7 @@ class KeyframeQLStatisticsBuilder:
     """
     Build KeyframeQL statistics.
     - Per-agent numeric attrs (incl. yaw) -> attribute_histograms
-    - Ego pose (ego_x, ego_y, ego_yaw) -> metadata["ego"] with compact histograms (no raw trajectory)
+    - Ego pose (from rows where class_name=='ego' or track_id==0) -> metadata["ego"] with compact histograms (no raw trajectory)
     """
 
     def __init__(self, dataset_path, bins=20, sample_ratio=1.0, ego_bins=10):
@@ -98,6 +98,20 @@ class KeyframeQLStatisticsBuilder:
         else:
             class_dist = {}
 
+        # per-class attribute histograms (for numeric attrs)
+        class_attr_hists = {}
+        if "class_name" in df.columns:
+            for cname, g in df.groupby("class_name"):
+                hists = {}
+                for col in ["velocity_mag", "bbox_area", "yaw", "x1", "y1"]:
+                    if col in g.columns:
+                        h = self._histogram(g[col], bins=self.bins)
+                        # only keep if we have at least 2 edges
+                        if h.get("bins"):
+                            hists[col] = h
+                if hists:
+                    class_attr_hists[str(cname)] = hists
+
         # per-agent attribute histograms
         attr_hist = {}
         for col in ["velocity_mag", "bbox_area", "yaw", "x1", "y1"]:
@@ -119,6 +133,8 @@ class KeyframeQLStatisticsBuilder:
 
         # Pairwise distances within each frame (sampled)
         pairwise_hist = {"bins": [], "counts": []}
+        # Ego-to-agent distances within each frame (sampled)
+        ego_to_agent_hist = {"bins": [], "counts": []}
         if "frame_index" in df.columns:
             # choose coordinates: bbox center if available, else (x1, y1)
             if {"x1", "y1", "x2", "y2"}.issubset(df.columns):
@@ -137,6 +153,7 @@ class KeyframeQLStatisticsBuilder:
             if df_coords is not None:
                 rng = np.random.default_rng(42)
                 all_dists = []
+                ego_dists = []
                 for _, g in df_coords.groupby("frame_index"):
                     pts = g[coord_cols].to_numpy(dtype=float, copy=False)
                     n = len(pts)
@@ -168,56 +185,95 @@ class KeyframeQLStatisticsBuilder:
                             dx = pts[a, 0] - pts[b, 0]
                             dy = pts[a, 1] - pts[b, 1]
                             all_dists.append(float(np.sqrt(dx * dx + dy * dy)))
+                    # Ego-to-agent distances for this frame, if ego present
+                    has_class = "class_name" in g.columns
+                    has_track = "track_id" in g.columns
+                    if has_class or has_track:
+                        mask_ego = pd.Series(False, index=g.index)
+                        if has_class:
+                            try:
+                                mask_ego = mask_ego | (g["class_name"] == "ego")
+                            except Exception:
+                                pass
+                        if has_track:
+                            try:
+                                mask_ego = mask_ego | (g["track_id"] == 0)
+                            except Exception:
+                                pass
+                        if mask_ego.any():
+                            ego_pts = g.loc[mask_ego, coord_cols]
+                            # choose the first ego row for this frame
+                            ex = float(ego_pts.iloc[0, 0])
+                            ey = float(ego_pts.iloc[0, 1])
+                            agents = g.loc[~mask_ego, coord_cols].to_numpy(dtype=float, copy=False)
+                            m = len(agents)
+                            if m > 0:
+                                max_pairs = 200
+                                if m <= max_pairs:
+                                    dx = agents[:, 0] - ex
+                                    dy = agents[:, 1] - ey
+                                    ego_dists.extend(np.sqrt(dx * dx + dy * dy).tolist())
+                                else:
+                                    sample_idx = rng.integers(0, m, size=max_pairs)
+                                    samp = agents[sample_idx]
+                                    dx = samp[:, 0] - ex
+                                    dy = samp[:, 1] - ey
+                                    ego_dists.extend(np.sqrt(dx * dx + dy * dy).tolist())
                 if all_dists:
                     pairwise_hist = self._histogram(all_dists, bins=self.bins)
+                if ego_dists:
+                    ego_to_agent_hist = self._histogram(ego_dists, bins=self.bins)
 
         # EGO metadata as histograms (no raw per-frame data)
         ego_meta = {}
-        if "frame_index" in df.columns and {"ego_x", "ego_y", "ego_yaw"}.issubset(df.columns):
-            # collapse to one row per frame to avoid object-multiplicity bias
-            ego_df = (
-                df.sort_values(["frame_index"])
-                  .groupby("frame_index")[["ego_x", "ego_y", "ego_yaw"]]
-                  .first()
-                  .reset_index(drop=True)
-            )
-            # normalize ego_yaw to [-pi, pi] for histogram stability
-            ego_df["ego_yaw"] = ((ego_df["ego_yaw"] + np.pi) % (2 * np.pi)) - np.pi
-
-            ego_hist = {
-                "ego_x": self._histogram(ego_df["ego_x"], bins=self.ego_bins),
-                "ego_y": self._histogram(ego_df["ego_y"], bins=self.ego_bins),
-                "ego_yaw": self._histogram(ego_df["ego_yaw"], bins=self.ego_bins),
-            }
-            # small summary stats (handy for UI / sanity checks)
-            ego_summary = {
-                "n_frames": int(len(ego_df)),
-                "means": {
-                    "ego_x": float(np.nanmean(ego_df["ego_x"])),
-                    "ego_y": float(np.nanmean(ego_df["ego_y"])),
-                    "ego_yaw": float(np.nanmean(ego_df["ego_yaw"])),
-                },
-                "mins": {
-                    "ego_x": float(np.nanmin(ego_df["ego_x"])),
-                    "ego_y": float(np.nanmin(ego_df["ego_y"])),
-                    "ego_yaw": float(np.nanmin(ego_df["ego_yaw"])),
-                },
-                "maxs": {
-                    "ego_x": float(np.nanmax(ego_df["ego_x"])),
-                    "ego_y": float(np.nanmax(ego_df["ego_y"])),
-                    "ego_yaw": float(np.nanmax(ego_df["ego_yaw"])),
-                },
-            }
-            ego_meta = {"histograms": ego_hist, "summary": ego_summary}
+        if {"frame_index", "class_name", "x1", "y1", "x2", "y2", "agent_yaw"}.issubset(df.columns):
+            ego_rows = df[(df["class_name"] == "ego") | (("track_id" in df.columns) & (df["track_id"] == 0))]
+            if not ego_rows.empty:
+                # compute centers from bbox and normalize yaw
+                ego_center_x = (ego_rows["x1"].to_numpy() + ego_rows["x2"].to_numpy()) / 2.0
+                ego_center_y = (ego_rows["y1"].to_numpy() + ego_rows["y2"].to_numpy()) / 2.0
+                ego_yaw = ((ego_rows["agent_yaw"].to_numpy() + np.pi) % (2 * np.pi)) - np.pi
+                ego_df = pd.DataFrame({
+                    "frame_index": ego_rows["frame_index"].to_numpy(),
+                    "ego_x": ego_center_x,
+                    "ego_y": ego_center_y,
+                    "ego_yaw": ego_yaw,
+                }).drop_duplicates(subset=["frame_index"]).sort_values("frame_index")
+                ego_hist = {
+                    "ego_x": self._histogram(ego_df["ego_x"], bins=self.ego_bins),
+                    "ego_y": self._histogram(ego_df["ego_y"], bins=self.ego_bins),
+                    "ego_yaw": self._histogram(ego_df["ego_yaw"], bins=self.ego_bins),
+                }
+                ego_summary = {
+                    "n_frames": int(len(ego_df)),
+                    "means": {
+                        "ego_x": float(np.nanmean(ego_df["ego_x"])),
+                        "ego_y": float(np.nanmean(ego_df["ego_y"])),
+                        "ego_yaw": float(np.nanmean(ego_df["ego_yaw"])),
+                    },
+                    "mins": {
+                        "ego_x": float(np.nanmin(ego_df["ego_x"])),
+                        "ego_y": float(np.nanmin(ego_df["ego_y"])),
+                        "ego_yaw": float(np.nanmin(ego_df["ego_yaw"])),
+                    },
+                    "maxs": {
+                        "ego_x": float(np.nanmax(ego_df["ego_x"])),
+                        "ego_y": float(np.nanmax(ego_df["ego_y"])),
+                        "ego_yaw": float(np.nanmax(ego_df["ego_yaw"])),
+                    },
+                }
+                ego_meta = {"histograms": ego_hist, "summary": ego_summary}
 
         self.metadata = {
             "dataset_name": self.dataset_path.stem,
             "n_frames": int(n_frames) if n_frames is not None else None,
             "n_objects": int(n_objects),
             "class_distribution": class_dist,
+            "class_attribute_histograms": class_attr_hists,
             "attribute_histograms": attr_hist,  # includes 'yaw'
             "frame_density": frame_density,
             "pairwise_distance_histogram": pairwise_hist,
+            "ego_to_agent_distance_histogram": ego_to_agent_hist,
             "ego": ego_meta,                     # histograms + summary only
             "last_updated": datetime.utcnow().isoformat(),
         }
