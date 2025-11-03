@@ -441,7 +441,12 @@ def configure_lm(model: str, **kwargs) -> None:
     display_kwargs = {k: (_mask_secret(v) if "key" in k.lower() else v) for k, v in kwargs.items()}
     print(f"[DSPy] Configuring LM → model={model}, kwargs={display_kwargs}")
 
-    lm = dspy.LM(model=model, **kwargs, max_tokens=20_000)
+    # Default max_tokens, but allow override via kwargs
+    # Some models (e.g., gpt-4o-mini) support max 16384 tokens
+    max_tokens = kwargs.pop("max_tokens", 16_384)
+    # Disable caching by default (allow override via kwargs)
+    caching = kwargs.pop("caching", False)
+    lm = dspy.LM(model=model, max_tokens=max_tokens, caching=caching, **kwargs)
     dspy.configure(lm=lm)
 
 
