@@ -68,22 +68,66 @@ class SelectivityIntegration:
             Tries histogram-based estimation first, falls back to UDF-based estimation.
             """
             t = atom.type
+
+            if self.debug:
+                print(f"handle_atom() called for atom: {atom.type}")
+            
+            # Determine if this atom refers to ego
+            is_ego = False
+            if query_spec is not None and hasattr(query_spec, 'objects') and hasattr(query_spec.objects, 'aliases'):
+                if atom.obj in query_spec.objects.aliases:
+                    obj_class = query_spec.objects.aliases[atom.obj].get('class')
+                    if obj_class == 'ego':
+                        is_ego = True
+                # Also check if atom.obj is literally "ego"
+                elif atom.obj == "ego":
+                    is_ego = True
             
             # Try histogram-based estimation for known single-object predicates
             if t == "velocity_above":
-                sel = self.est._hist_fraction(
-                    self.est.stats["attribute_histograms"]["velocity_mag"],
-                    threshold=atom.value,
-                    op=">",
-                )
-                return sel
+                # Use class-specific histogram for ego, otherwise use general histogram
+                if is_ego and "class_attribute_histograms" in self.est.stats:
+                    if "ego" in self.est.stats["class_attribute_histograms"]:
+                        if "velocity_mag" in self.est.stats["class_attribute_histograms"]["ego"]:
+                            sel = self.est._hist_fraction(
+                                self.est.stats["class_attribute_histograms"]["ego"]["velocity_mag"],
+                                threshold=atom.value,
+                                op=">",
+                            )
+                            if self.debug:
+                                print(f"  Using ego-specific velocity histogram for velocity_above")
+                            return sel
+                
+                # Fallback to general histogram
+                if "attribute_histograms" in self.est.stats and "velocity_mag" in self.est.stats["attribute_histograms"]:
+                    sel = self.est._hist_fraction(
+                        self.est.stats["attribute_histograms"]["velocity_mag"],
+                        threshold=atom.value,
+                        op=">",
+                    )
+                    return sel
             elif t == "velocity_below":
-                sel = self.est._hist_fraction(
-                    self.est.stats["attribute_histograms"]["velocity_mag"],
-                    threshold=atom.value,
-                    op="<",
-                )
-                return sel
+                # Use class-specific histogram for ego, otherwise use general histogram
+                if is_ego and "class_attribute_histograms" in self.est.stats:
+                    if "ego" in self.est.stats["class_attribute_histograms"]:
+                        if "velocity_mag" in self.est.stats["class_attribute_histograms"]["ego"]:
+                            sel = self.est._hist_fraction(
+                                self.est.stats["class_attribute_histograms"]["ego"]["velocity_mag"],
+                                threshold=atom.value,
+                                op="<",
+                            )
+                            if self.debug:
+                                print(f"  Using ego-specific velocity histogram for velocity_below")
+                            return sel
+                
+                # Fallback to general histogram
+                if "attribute_histograms" in self.est.stats and "velocity_mag" in self.est.stats["attribute_histograms"]:
+                    sel = self.est._hist_fraction(
+                        self.est.stats["attribute_histograms"]["velocity_mag"],
+                        threshold=atom.value,
+                        op="<",
+                    )
+                    return sel
             
             # Fall back to UDF-based estimation for complex predicates
             return self._estimate_using_udf(atom, query_spec)
@@ -150,8 +194,8 @@ class SelectivityIntegration:
         Returns:
             Estimated selectivity (fraction of data satisfying the predicate)
         """
-        if self.debug:
-            print(f"Estimating selectivity for atom: {atom.type}")
+        # if self.debug:
+        #     print(f"Estimating selectivity for atom: {atom.type}")
         # Check if UDF exists in registry
         all_udfs = self.registry.get_all_udfs()
         if atom.type not in all_udfs:
@@ -275,8 +319,8 @@ class SelectivityIntegration:
                     
                     # Allow same class but ensure different track_ids
                     if cls1 == cls2:
-                        if self.debug:
-                            print(f"Same class: {cls1}")
+                        # if self.debug:
+                        #     print(f"Same class: {cls1}")
                         # Same class: sample different track pairs
                         track_ids = class_groups[cls1]
                         # if self.debug:
@@ -317,8 +361,8 @@ class SelectivityIntegration:
                                     # Skip on error
                                     continue
                     else:
-                        if self.debug:
-                            print(f"Different classes: {cls1} and {cls2}")
+                        # if self.debug:
+                        #     print(f"Different classes: {cls1} and {cls2}")
                         # Different classes: sample from different class combinations
                         for track_id1 in class_groups[cls1][:10]:  # Limit pairs for efficiency
                             for track_id2 in class_groups[cls2][:10]:

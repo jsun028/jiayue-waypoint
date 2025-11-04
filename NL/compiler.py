@@ -104,6 +104,9 @@ class QueryCompiler:
         # Only one ego alias is expected; if present, pre-bind it and exclude from enumeration
         ego_alias = next((a for a, info in aliases.items() if info.get('class') == 'ego'), None)
 
+        # print(f"aliases: {aliases}")
+        # print(f"ego_alias: {ego_alias}")
+
         fixed_bindings: Dict[str, int] = {}
         reduced_obj_spec = query_spec.objects
 
@@ -136,6 +139,13 @@ class QueryCompiler:
             for a in object_assignments:
                 a.update(fixed_bindings)
         
+        # Special case: if we have fixed bindings (e.g., ego) but no other assignments,
+        # create a single assignment with just the fixed bindings to enable search
+        if fixed_bindings and not object_assignments:
+            object_assignments = [fixed_bindings.copy()]
+        
+        print(f"object_assignments: {object_assignments}")
+
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
 

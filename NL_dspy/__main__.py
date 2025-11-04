@@ -139,9 +139,9 @@ def main() -> None:
         with open(args.dump_json, "w", encoding="utf-8") as handle:
             handle.write(result.spec_json)
         print(f"\nRaw JSON saved to {args.dump_json}")
-    else:
-        print("\n=== Raw JSON ===")
-        print(json.dumps(json.loads(result.spec_json), indent=2))
+    # else:
+    #     print("\n=== Raw JSON ===")
+    #     print(json.dumps(json.loads(result.spec_json), indent=2))
 
     logger.info(f"Raw JSON: {json.dumps(json.loads(result.spec_json), indent=2)}")
 

@@ -52,7 +52,7 @@ Constraint semantics (what the engine enforces):
 
 PredicateAtom construction guide:
 - Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
-- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values
+- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
 - "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
 - "other_obj" field: for pairwise predicates, use second object alias
 - "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
@@ -611,6 +611,9 @@ def run_pipeline(
         available_udfs=available,
         stats_text=stats_text,
     )
+    print("\n=== Raw JSON ===")
+    print(_json_dumps(json.loads(raw_json)))
+
     spec = pipeline.parser(raw_json)
     spec = pipeline.semantic_checker(spec)
     print("[DSPy][Run] Done")

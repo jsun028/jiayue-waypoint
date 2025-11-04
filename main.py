@@ -10,7 +10,7 @@ from NL.compiler import QueryCompiler
 from NL.utils.nuscene_traj_viz import plot_bev_snapshot
 
 from NL.utils.viz import _write_results_json, _generate_visualizations
-from NL.specs import print_spec_details
+from NL.specs import print_spec_details, QuerySpec
 
 
 logger.add("runs.log", rotation="1 week")
@@ -26,8 +26,20 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     # UDF registry
     registry = UDFRegistry(df)
 
-    # Load a sample spec
-    spec = pickle.load(open(spec_path, "rb"))
+    # Load a sample spec (support both pkl and JSON)
+    spec_path_obj = Path(spec_path)
+    if spec_path_obj.suffix.lower() == ".json":
+        # Load from JSON
+        with open(spec_path, "r") as f:
+            spec_dict = json.load(f)
+        spec = QuerySpec.model_validate(spec_dict)
+        print(f"Loaded spec from JSON: {spec_path}")
+    else:
+        # Load from pickle (default)
+        with open(spec_path, "rb") as f:
+            spec = pickle.load(f)
+        print(f"Loaded spec from pickle: {spec_path}")
+    
     print("spec: ", spec)
     print_spec_details(spec)
 
