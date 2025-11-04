@@ -36,7 +36,7 @@ def udf(**explicit_mappings):
         params = list(sig.parameters.keys())
         
         # Filter out known special parameters
-        special_params = {'self', 'frame_window'}
+        special_params = {'self', 'frame_window', 'mode'}
         # Object ID parameters (first 1-2 non-self params before value params)
         object_param_patterns = {'object_id', 'oid1', 'oid2', 'track_id', 'obj_id'}
         
@@ -58,22 +58,49 @@ def udf(**explicit_mappings):
         for param_name, atom_attr in explicit_mappings.items():
             param_mapping[param_name] = atom_attr
         
-        # Apply conventions for unmapped parameters
-        atom_attrs = ['value', 'tol', 'label', 'bbox']
-        for i, param in enumerate(mappable_params):
+        # Apply conventions for unmapped parameters (no positional fallback)
+        used_attrs = set(param_mapping.values())
+        name_mapped: List[str] = []
+        for param in mappable_params:
             if param in param_mapping:
                 continue  # Already explicitly mapped
-            
-            # Convention-based mapping
-            if 'tol' in param.lower():
+
+            lower_name = param.lower()
+
+            # Convention-based mapping by name only
+            if 'tol' in lower_name:
                 param_mapping[param] = 'tol'
-            elif 'label' in param.lower() or 'action' in param.lower():
+                used_attrs.add('tol')
+                name_mapped.append(param)
+            elif 'label' in lower_name or 'action' in lower_name:
                 param_mapping[param] = 'label'
-            elif 'bbox' in param.lower() or 'box' in param.lower():
+                used_attrs.add('label')
+                name_mapped.append(param)
+            elif 'bbox' in lower_name or 'box' in lower_name:
                 param_mapping[param] = 'bbox'
-            elif i < len(atom_attrs):
-                # First unmapped param -> value, second -> tol, etc.
-                param_mapping[param] = atom_attrs[i]
+                used_attrs.add('bbox')
+                name_mapped.append(param)
+
+        # Any remaining unmapped parameters after explicit + name-based rules
+        remaining_unmapped = [p for p in mappable_params if p not in param_mapping]
+
+        # Allow a single remaining parameter to map to 'value'
+        if remaining_unmapped:
+            if len(remaining_unmapped) == 1 and 'value' not in used_attrs:
+                param_mapping[remaining_unmapped[0]] = 'value'
+                used_attrs.add('value')
+            else:
+                func_name = getattr(func, '__name__', '<unknown_udf>')
+                raise ValueError(
+                    "Unable to infer PredicateAtom mapping for parameters: "
+                    f"{remaining_unmapped} in UDF '{func_name}'. "
+                    "Provide explicit mappings via @udf(param='value'|'tol'|'label'|'bbox'), "
+                    "or rename parameters to include one of: 'tol', 'label', 'bbox'."
+                )
+
+        # Ensure known passthroughs like 'mode' are mapped to themselves if present
+        if 'mode' in params:
+            param_mapping.setdefault('mode', 'mode')
         
         # Store metadata on the function
         func._udf_param_mapping = param_mapping
@@ -96,6 +123,7 @@ class UDFRegistry:
         'car_turning',
         'car_acceleration',
         'car_can_see_agent',
+        'car_in_relative_direction',
     )
 
     _GLOBAL_FUNCTIONS: Dict[str, Callable] = {}
@@ -716,6 +744,92 @@ def {name}(*args, **kwargs) -> float:
                             break
         
         return visible.astype(float).mean()
+
+    @udf()
+    def car_in_relative_direction(
+        self, 
+        oid1: int, 
+        oid2: int, 
+        frame_window: Tuple[int, int],
+        mode: Optional[str] = None
+    ) -> float:
+        """Fraction of shared frames where oid2 is in a specific direction relative to oid1's heading.
+
+        Transforms oid2's position into oid1's local coordinate frame where:
+        - Forward: along oid1's heading direction
+        - Left: 90° counterclockwise from heading
+        - Right: 90° clockwise from heading  
+        - Back: opposite to heading direction
+
+        Args:
+            oid1: Reference car (defines the coordinate frame).
+            oid2: Target car (position to check).
+            frame_window: Inclusive `(start, end)` frame indices.
+            mode: Direction to check (required):
+                  - "front" or "ahead": oid2 is ahead of oid1
+                  - "back" or "behind": oid2 is behind oid1
+                  - "left": oid2 is to the left of oid1
+                  - "right": oid2 is to the right of oid1
+
+        Returns:
+            Mean indicator that oid2 is in the specified direction; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `agent_yaw`.
+        """
+        if mode is None:
+            raise ValueError("mode parameter is required for car_in_relative_direction")
+        
+        start_frame, end_frame = frame_window
+        
+        # Filter data for both objects in the frame window
+        df_filtered = self.df[
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        # Get reference and target data
+        reference = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
+        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
+        
+        # Get positions for common frames
+        common = reference.join(target, how='inner', rsuffix='_target')
+        
+        if common.empty:
+            return 0.0
+        
+        # Calculate relative position vector (from oid1 to oid2)
+        dx = common['x1_target'] - common['x1']
+        dy = common['y1_target'] - common['y1']
+        
+        # Get oid1's heading
+        heading = common['agent_yaw']
+        
+        # Transform relative position into oid1's local coordinate frame
+        # Forward component: dot product with heading direction
+        forward = dx * np.cos(heading) + dy * np.sin(heading)
+        
+        # Right component: dot product with right direction (90° clockwise from heading)
+        # Right vector is (sin(heading), -cos(heading))
+        right = dx * np.sin(heading) - dy * np.cos(heading)
+        
+        # Check condition based on mode
+        mode_lower = mode.lower()
+        if mode_lower in ["front", "ahead"]:
+            condition = forward > 0
+        elif mode_lower in ["back", "behind"]:
+            condition = forward < 0
+        elif mode_lower == "left":
+            # Left is negative right
+            condition = right < 0
+        elif mode_lower == "right":
+            condition = right > 0
+        else:
+            raise ValueError(
+                f"Invalid mode '{mode}' for car_in_relative_direction. "
+                "Use 'front'/'ahead', 'back'/'behind', 'left', or 'right'."
+            )
+        
+        return condition.astype(float).mean()
 
 
 ########################################################

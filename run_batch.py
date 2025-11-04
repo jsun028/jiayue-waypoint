@@ -139,6 +139,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, required=True, help="Master output folder")
     parser.add_argument("--max-workers", type=int, default=os.cpu_count() or 4, help="Max concurrent workers")
     parser.add_argument("--overwrite", action="store_true", help="Re-run even if results.json exists")
+    parser.add_argument("--keep-empty", action="store_true", help="Keep (rename) empty result dirs instead of deleting them")
 
     # Pass-through options to main.py
     parser.add_argument("--coverage", type=float, default=None)
@@ -201,23 +202,40 @@ def main() -> None:
 
     kept = 0
     deleted = 0
+    renamed = 0
     failed = 0
 
     for out_dir, nonempty, return_code in results:
         if nonempty:
             kept += 1
             continue
-        # Treat nonempty False as zero results; delete the folder
+        # Treat nonempty False as zero results; delete or rename the folder
         try:
-            shutil.rmtree(out_dir, ignore_errors=True)
-            deleted += 1
+            if args.keep_empty:
+                # Rename with _empty suffix
+                renamed_dir = out_dir.with_name(out_dir.name + "_empty")
+                # Handle case where renamed dir already exists
+                counter = 1
+                while renamed_dir.exists():
+                    renamed_dir = out_dir.with_name(out_dir.name + f"_empty_{counter}")
+                    counter += 1
+                out_dir.rename(renamed_dir)
+                renamed += 1
+            else:
+                shutil.rmtree(out_dir, ignore_errors=True)
+                deleted += 1
         except Exception:
             failed += 1
 
     total = len(results)
-    print(
-        f"Done. Total: {total}, kept (with results): {kept}, deleted (no results): {deleted}, delete-failures: {failed}"
-    )
+    if args.keep_empty:
+        print(
+            f"Done. Total: {total}, kept (with results): {kept}, renamed (no results): {renamed}, failures: {failed}"
+        )
+    else:
+        print(
+            f"Done. Total: {total}, kept (with results): {kept}, deleted (no results): {deleted}, delete-failures: {failed}"
+        )
 
 
 if __name__ == "__main__":

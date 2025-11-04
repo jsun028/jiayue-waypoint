@@ -92,39 +92,39 @@ def main() -> None:
     # Prepare optional stats text
     stats_text = None
     if args.generate_stats:
-        try:
-            # Resolve dataset CSV path: arg > env vars > default
-            dataset_csv = (
-                args.dataset_csv
-                or os.getenv("KEYFRAME_DATASET_CSV")
-                or os.getenv("DATASET_CSV")
-                # or str((pkg_root.parent / "dataset" / "scene_scene-0225.csv"))
-                or str((pkg_root.parent / "dataset" / "scene_scene-0297.csv"))
+
+        # Resolve dataset CSV path via env or a common default
+        dataset_csv = (
+            os.getenv("KEYFRAME_DATASET_CSV")
+            or os.getenv("DATASET_CSV")
+            # or str((pkg_root.parent / "dataset" / "scene_scene-0297.csv"))
+            or "dataset/scene_scene-0225.csv,dataset/scene_scene-0226.csv,dataset/scene_scene-0230.csv,dataset/scene_scene-0240.csv,dataset/scene_scene-0250.csv"
+        )
+        # Support comma-separated list of CSVs
+        csv_list = [s.strip() for s in dataset_csv.split(",")]
+        if len(csv_list) > 1:
+            print(f"Using multiple dataset CSVs: {csv_list}")
+        if not all(os.path.exists(path) for path in csv_list):
+            raise FileNotFoundError(
+                f"One or more dataset CSVs not found: {csv_list}. Set KEYFRAME_DATASET_CSV or DATASET_CSV."
             )
-            if not os.path.exists(dataset_csv):
-                raise FileNotFoundError(
-                    f"Dataset CSV not found: {dataset_csv}. "
-                    "Provide --dataset-csv, or set KEYFRAME_DATASET_CSV or DATASET_CSV env var."
-                )
 
-            from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
-            builder = KeyframeQLStatisticsBuilder(
-                dataset_csv,
-                bins=20,
-                sample_ratio=float(args.stats_sample),
-                ego_bins=8,
-            ).load_dataset().compute_statistics()
-            stats_meta = builder.metadata
+        from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
+        builder = KeyframeQLStatisticsBuilder(
+            csv_list if len(csv_list) > 1 else csv_list[0],
+            bins=20,
+            sample_ratio=float(args.stats_sample),
+            ego_bins=8,
+        ).load_dataset().compute_statistics()
+        stats_meta = builder.metadata
 
-            if __package__ in {None, ""}:
-                from NL_dspy.stats_prompt import format_stats_for_prompt  # type: ignore
-            else:
-                from .stats_prompt import format_stats_for_prompt
-            stats_text = format_stats_for_prompt(stats_meta)
-            print("[DSPy][CLI] Generated dataset statistics for prompt grounding")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(f"Failed to generate statistics: {exc}")
-            print("[DSPy][CLI] Proceeding without statistics due to error.")
+        if __package__ in {None, ""}:
+            from NL_dspy.stats_prompt import format_stats_for_prompt  # type: ignore
+        else:
+            from .stats_prompt import format_stats_for_prompt
+        stats_text = format_stats_for_prompt(stats_meta)
+        print("[DSPy][CLI] Generated dataset statistics for prompt grounding")
+
 
     print("[DSPy][CLI] Running pipeline …")
     result = run_pipeline(args.nl, pipeline, stats_text=stats_text)
