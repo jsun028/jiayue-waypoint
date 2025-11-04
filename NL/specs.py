@@ -96,12 +96,30 @@ def print_spec_details(spec: QuerySpec):
     for i, kf in enumerate(spec.keyframes):
         print(f"Keyframe {i+1} ({kf.name}):")
         print(f"  Predicates: {kf.where.op if kf.where.op else kf.where.args}")
-        if kf.where.op == "ATOM":
-            print(f"    Atom details: Type: {kf.where.atom.type}, Object: {kf.where.atom.obj}, Other object: {kf.where.atom.other_obj}, Value: {kf.where.atom.value}")
+        def _format_atom(prefix: str, atom: PredicateAtom) -> None:
+            # Prefer robust dump to capture any extra fields (e.g., distance)
+            dump = atom.model_dump()
+            # Collect known and optional fields if present
+            details = {
+                "Type": dump.get("type"),
+                "Object": dump.get("obj"),
+                "Other object": dump.get("other_obj"),
+                "Value": dump.get("value"),
+                "Tol": dump.get("tol"),
+                "Distance": dump.get("distance"),
+                "BBox": dump.get("bbox"),
+                "Label": dump.get("label"),
+            }
+            # Build a compact string skipping None values
+            parts = [f"{k}: {v}" for k, v in details.items() if v is not None]
+            print(f"{prefix} Atom details: " + ", ".join(parts))
+
+        if kf.where.op == "ATOM" and kf.where.atom is not None:
+            _format_atom("   ", kf.where.atom)
         elif kf.where.args:
             for j, arg in enumerate(kf.where.args):
-                if arg.op == "ATOM":
-                    print(f"    {j+1}. Atom details: Type: {arg.atom.type}, Object: {arg.atom.obj}, Other object: {arg.atom.other_obj}, Value: {arg.atom.value}")
+                if arg.op == "ATOM" and arg.atom is not None:
+                    _format_atom(f"    {j+1}.", arg.atom)
     
     # Show constraint details
     for i, c in enumerate(spec.constraints):

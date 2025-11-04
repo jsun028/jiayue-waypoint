@@ -36,7 +36,7 @@ class QueryCompiler:
         self.registry = registry
         self.all_udfs = registry.get_all_udfs()
         self.logger = logger
-        self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
+        self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df, registry=registry)
         # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0
         if coverage is None:
             coverage = 1.0
@@ -75,7 +75,7 @@ class QueryCompiler:
         if estimation_mode:
             results = {}
             for kf in query_spec.keyframes:
-                est = self.sel_int.estimate_keyframe_selectivity(kf)
+                est = self.sel_int.estimate_keyframe_selectivity(kf, query_spec)
                 sel = float(est["selectivity"])
                 results[kf.name] = sel
                 print(f"[Keyframe {kf.name}] estimated selectivity = {sel:.4f}")

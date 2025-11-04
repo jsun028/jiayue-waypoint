@@ -10,6 +10,7 @@ from NL.compiler import QueryCompiler
 from NL.utils.nuscene_traj_viz import plot_bev_snapshot
 
 from NL.utils.viz import _write_results_json, _generate_visualizations
+from NL.specs import print_spec_details
 
 
 logger.add("runs.log", rotation="1 week")
@@ -28,13 +29,15 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     # Load a sample spec
     spec = pickle.load(open(spec_path, "rb"))
     print("spec: ", spec)
+    print_spec_details(spec)
 
     print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")
     print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
     
-    compiler = QueryCompiler(registry, df, 
-        logger=logger, coverage=coverage, track_stats=track_stats, 
-        dedup_threshold=dedup_threshold, limit=limit, 
+    # def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
+    compiler = QueryCompiler(
+        registry=registry, df=df, logger=logger, 
+        coverage=coverage, track_stats=track_stats, dedup_threshold=dedup_threshold, limit=limit, 
         metadata_path=metadata_path)
     # Execute query with two-stage search
     results = compiler.execute_query(spec, estimation_mode=estimation_mode)
@@ -54,13 +57,14 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
 
 if __name__ == "__main__":
     # example_usage()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=str, required=True)
     parser.add_argument("--data", type=str, required=True)
     parser.add_argument("--coverage", type=float, default=1.0, help="Fraction of frames to scan (0-1]")
     parser.add_argument("--track-stats", action="store_true", help="Enable predicate selectivity stats")
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
-    parser.add_argument("--viz", action="store_true", help="Generate visualization images per result keyframe")
+    parser.add_argument("--viz", action="store_false", help="Generate visualization images per result keyframe")
     parser.add_argument("--viz-dir", type=str, default=None, help="Directory for visualization images (default derived from --out)")
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return")
     parser.add_argument("--dedup-threshold", type=float, default=0.25, help="Deduplication threshold for overlapping time windows")

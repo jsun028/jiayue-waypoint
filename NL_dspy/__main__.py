@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 
+from NL.specs import print_spec_details
 from loguru import logger
 
 logger.add("nl_dspy_runs.log", rotation="1 week")
@@ -64,9 +65,15 @@ def parse_args() -> argparse.Namespace:
         help="Compute statistics in-memory and include in the prompt.",
     )
     stats.add_argument(
+        "--dataset-csv",
+        type=str,
+        default=None,
+        help="Path to dataset CSV file for statistics generation (falls back to KEYFRAME_DATASET_CSV or DATASET_CSV env vars).",
+    )
+    stats.add_argument(
         "--stats-sample",
         type=float,
-        default=1.0,
+        default=0.2,
         help="Sample ratio in (0,1] when generating stats.",
     )
     return parser.parse_args()
@@ -86,16 +93,18 @@ def main() -> None:
     stats_text = None
     if args.generate_stats:
         try:
-            # Resolve dataset CSV path via env or a common default
+            # Resolve dataset CSV path: arg > env vars > default
             dataset_csv = (
-                os.getenv("KEYFRAME_DATASET_CSV")
+                args.dataset_csv
+                or os.getenv("KEYFRAME_DATASET_CSV")
                 or os.getenv("DATASET_CSV")
                 # or str((pkg_root.parent / "dataset" / "scene_scene-0225.csv"))
                 or str((pkg_root.parent / "dataset" / "scene_scene-0297.csv"))
             )
             if not os.path.exists(dataset_csv):
                 raise FileNotFoundError(
-                    f"Dataset CSV not found: {dataset_csv}. Set KEYFRAME_DATASET_CSV or DATASET_CSV."
+                    f"Dataset CSV not found: {dataset_csv}. "
+                    "Provide --dataset-csv, or set KEYFRAME_DATASET_CSV or DATASET_CSV env var."
                 )
 
             from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
@@ -135,6 +144,8 @@ def main() -> None:
         print(json.dumps(json.loads(result.spec_json), indent=2))
 
     logger.info(f"Raw JSON: {json.dumps(json.loads(result.spec_json), indent=2)}")
+
+    print_spec_details(result.spec)
 
     if args.dump_pickle:
         write_spec_pickle(result.spec, args.dump_pickle)
