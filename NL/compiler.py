@@ -30,7 +30,7 @@ from NL.optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str | None = None, debug: bool = True):
+    metadata_path: str | None = None, debug: bool = False):
         self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
