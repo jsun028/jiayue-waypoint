@@ -30,7 +30,8 @@ from NL.optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str | None = None):
+    metadata_path: str | None = None, debug: bool = True):
+        self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
         self.registry = registry
@@ -164,6 +165,8 @@ class QueryCompiler:
             candidate_frames = self.stage1_per_keyframe_scan(
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
+
+            print(f"candidate_frames: {candidate_frames}")
             
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
@@ -407,6 +410,21 @@ class QueryCompiler:
         for kf_name, kf_spec in keyframes_dict.items():
             frame_candidates = []
             
+            # Collect all atoms for debugging
+            all_atoms = self._collect_atoms(kf_spec.where)
+            # Track satisfied frames per predicate for debugging
+            predicate_satisfied_frames = {}
+            for atom in all_atoms:
+                atom_key = f"{atom.type}(obj={atom.obj}"
+                if atom.other_obj:
+                    atom_key += f", other_obj={atom.other_obj}"
+                if atom.value is not None:
+                    atom_key += f", value={atom.value}"
+                if atom.tol is not None:
+                    atom_key += f", tol={atom.tol}"
+                atom_key += ")"
+                predicate_satisfied_frames[atom_key] = []
+            
             # Scan each frame in the valid range
             # Apply coverage subsampling by fixed stride to ensure even coverage
             total_frames = max_frame - min_frame + 1
@@ -426,17 +444,32 @@ class QueryCompiler:
                     duration_frames = self.seconds_to_frames(always_constraint.duration_sec)
                     frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
                 
-                # Per-atom selectivity tracking
-                if self.track_stats:
-                    atoms = self._collect_atoms(kf_spec.where)
-                    for atom in atoms:
+                # Per-atom selectivity tracking and debugging
+                for atom in all_atoms:
+                    atom_key = f"{atom.type}(obj={atom.obj}"
+                    if atom.other_obj:
+                        atom_key += f", other_obj={atom.other_obj}"
+                    if atom.value is not None:
+                        atom_key += f", value={atom.value}"
+                    if atom.tol is not None:
+                        atom_key += f", tol={atom.tol}"
+                    atom_key += ")"
+                    
+                    try:
+                        atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
+                    except Exception as e:
+                        atom_score = 0.0
+                        if self.logger:
+                            self.logger.debug(f"Error evaluating {atom_key} at frame {frame_idx}: {e}")
+                    
+                    # Track satisfied frames for debugging
+                    if isinstance(atom_score, (int, float)) and atom_score > 0:
+                        predicate_satisfied_frames[atom_key].append(frame_idx)
+                    
+                    if self.track_stats:
                         key = f"{kf_name}:{atom.type}:{atom.obj}:{atom.other_obj}:{atom.value}:{atom.tol}:{atom.label}"
                         if key not in self.predicate_stats:
                             self.predicate_stats[key] = {'tested': 0, 'positive': 0, 'sum_score': 0.0}
-                        try:
-                            atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
-                        except Exception:
-                            atom_score = 0.0
                         self.predicate_stats[key]['tested'] += 1
                         # Treat any positive score as a hit
                         if isinstance(atom_score, (int, float)) and atom_score > 0:
@@ -447,6 +480,23 @@ class QueryCompiler:
                 score = self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
                     frame_candidates.append((frame_idx, score))
+            
+            # Print debugging info for each predicate
+            if self.debug:
+                print(f"\n[DEBUG] Keyframe {kf_name} - Predicate satisfaction by frame:")
+                print(f"  Assignment: {object_assignment}")
+                print(f"  Frame range: [{min_frame}, {max_frame}]")
+                for atom_key, satisfied_frames in predicate_satisfied_frames.items():
+                    print(f"  {atom_key}:")
+                    if satisfied_frames:
+                        # Show first 20 frames and total count
+                        if len(satisfied_frames) <= 20:
+                            print(f"    Satisfied frames: {satisfied_frames} ({len(satisfied_frames)} total)")
+                        else:
+                            print(f"    Satisfied frames: {satisfied_frames[:20]} ... ({len(satisfied_frames)} total)")
+                    else:
+                        print(f"    Satisfied frames: [] (0 total)")
+                print(f"  Keyframe {kf_name} candidate frames: {[f[0] for f in frame_candidates]} ({len(frame_candidates)} total)")
             
             candidates[kf_name] = frame_candidates
         
