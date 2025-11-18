@@ -64,7 +64,7 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     if do_viz:
         out_dir = Path(viz_dir) if viz_dir else Path(out_path).with_suffix("").with_name(Path(out_path).stem + "_viz") if out_path else Path("viz_out")
         out_dir.mkdir(parents=True, exist_ok=True)
-        _generate_visualizations(df, results, out_dir)
+        _generate_visualizations(df, results, out_dir, top_k=limit)
     
 
 if __name__ == "__main__":
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
     parser.add_argument("--viz", action="store_false", help="Generate visualization images per result keyframe")
     parser.add_argument("--viz-dir", type=str, default=None, help="Directory for visualization images (default derived from --out)")
-    parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return and visualize (top-k by score)")
     parser.add_argument("--dedup-threshold", type=float, default=0.25, help="Deduplication threshold for overlapping time windows")
     parser.add_argument("--metadata-path", type=str, default=None, help="Path to metadata JSON file")
     parser.add_argument("--estimation-mode", action="store_true", help="Enable estimation mode")
