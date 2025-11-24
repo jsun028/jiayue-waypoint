@@ -16,6 +16,7 @@ from NL.specs import (
     AlwaysSpec,
     InterframeSpec,
     TrajectorySpec,
+    DiscreteSlider,
 )
 from typing import Dict, List, Tuple
 from NL.df_utils import (
@@ -30,7 +31,7 @@ from NL.optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str | None = None, debug: bool = False):
+    metadata_path: str | None = None, slider_setting: str = "medium", debug: bool = False):
         self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
@@ -38,6 +39,9 @@ class QueryCompiler:
         self.all_udfs = registry.get_all_udfs()
         self.logger = logger
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df, registry=registry)
+        self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
+        # Slider setting: "low", "medium", or "high" for resolving DiscreteSlider values
+        self.slider_setting = slider_setting
         # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0
         if coverage is None:
             coverage = 1.0
@@ -685,7 +689,11 @@ class QueryCompiler:
                         # For now, skip bbox in kwargs - this is a TODO if needed
                         pass
                     else:
-                        kwargs[param_name] = atom_val
+                        # Resolve DiscreteSlider values based on current setting
+                        if isinstance(atom_val, DiscreteSlider):
+                            kwargs[param_name] = atom_val.resolve(self.slider_setting)
+                        else:
+                            kwargs[param_name] = atom_val
 
             # Get actual track_id from alias
             resolved_obj = resolve_object_alias(atom.obj, object_assignment)
