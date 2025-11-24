@@ -330,18 +330,20 @@ class QueryCompiler:
         
         # Evaluate each cross-constraint
         for constraint in cross_anchored_constraints:
-            constraint_satisfied = self.evaluate_cross_constraint(
+            constraint_score = self.evaluate_cross_constraint(
                 constraint, positions, keyframes_dict, object_assignment
             )
             
             constraint_key = f"{constraint.kind}_{constraint.anchor}_{constraint.target}"
-            score_details[constraint_key] = 1.0 if constraint_satisfied else 0.0
+            score_details[constraint_key] = constraint_score  # Store fractional score
             
-            if constraint_satisfied:
-                total_cross_score += 1.0
-            else:
-                # If any cross-constraint fails, the whole combination is invalid
+            # Cross-constraints are hard requirements: score must be > 0
+            if constraint_score == 0.0:
+                # If any cross-constraint completely fails, the whole combination is invalid
                 return False, 0.0, score_details
+            else:
+                # Add the fractional score (not just 1.0)
+                total_cross_score += constraint_score
         
         return True, total_cross_score, score_details
 
@@ -444,15 +446,21 @@ class QueryCompiler:
 
     def evaluate_cross_constraint(self, constraint, positions: Dict[str, int],
                                 keyframes_dict: Dict[str, KeyframeSpec], 
-                                object_assignment: Dict[str, int]) -> bool:
-        """Evaluate a cross-anchored constraint"""
+                                object_assignment: Dict[str, int]) -> float:
+        """Evaluate a cross-anchored constraint.
+        
+        Returns:
+            float: Score in [0.0, 1.0] representing constraint satisfaction.
+                   For 'always': fraction of frames in the duration window that satisfy the target.
+                   For 'interframe': 1.0 if timing matches, 0.0 otherwise (binary for now).
+        """
         
         if constraint.kind == "interframe":
             anchor_pos = positions.get(constraint.anchor)
             target_pos = positions.get(constraint.target)
             
             if anchor_pos is None or target_pos is None:
-                return False
+                return 0.0
             
             expected_shift = self.seconds_to_frames(constraint.time_shift)
             actual_shift = target_pos - anchor_pos
@@ -465,7 +473,7 @@ class QueryCompiler:
                 # track rejection
                 if hasattr(self, 'reject_counters'):
                     self.reject_counters['interframe'] += 1
-                return False
+                return 0.0
             
             # Check comparators if present
             if hasattr(constraint, 'comparators') and constraint.comparators:
@@ -474,7 +482,7 @@ class QueryCompiler:
                     # Implementation depends on the specific comparator format
                     pass
             
-            return True
+            return 1.0
         
         elif constraint.kind == "always" and constraint.anchor is not None:
             # Cross-anchored always: check that target keyframe holds for duration after anchor
@@ -484,7 +492,7 @@ class QueryCompiler:
             if anchor_pos is None or target_pos is None:
                 if hasattr(self, 'reject_counters'):
                     self.reject_counters['cross_always'] += 1
-                return False
+                return 0.0
             
             # The target should be satisfied for the duration starting from anchor
             duration_frames = self.seconds_to_frames(constraint.duration_sec)
@@ -492,30 +500,43 @@ class QueryCompiler:
             
             target_kf = keyframes_dict.get(constraint.target)
             if target_kf:
-                ok = self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
-                if not ok and hasattr(self, 'reject_counters'):
+                # Returns fractional score: fraction of frames in the window that satisfy target
+                score = self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
+                if score == 0.0 and hasattr(self, 'reject_counters'):
                     self.reject_counters['cross_always'] += 1
-                return ok
+                return score  # Return the fractional score (0.0-1.0)
             
             if hasattr(self, 'reject_counters'):
                 self.reject_counters['cross_always'] += 1
-            return False
+            return 0.0
         
-        return False
+        return 0.0
     
     
     def evaluate_keyframe_with_binding(self, keyframe_spec: KeyframeSpec, 
                                      frame_window: Tuple[int, int], 
-                                     object_assignment: Dict[str, int]) -> bool:
-        """Evaluate a keyframe with a specific object assignment"""
+                                     object_assignment: Dict[str, int]) -> float:
+        """Evaluate a keyframe with a specific object assignment.
+        
+        Returns:
+            float: Score in [0.0, 1.0] representing how well the keyframe predicate is satisfied
+        """
         return self.evaluate_predicate_expr_with_binding(
             keyframe_spec.where, frame_window, object_assignment
         )
 
     def evaluate_predicate_expr_with_binding(self, expr: PredicateExpr, 
                                            frame_window: Tuple[int, int], 
-                                           object_assignment: Dict[str, int]) -> bool:
-        """Recursively evaluate a predicate expression tree with object binding"""
+                                           object_assignment: Dict[str, int], use_logical_aggregation: bool = True) -> float:
+        """Recursively evaluate a predicate expression tree with object binding.
+        
+        Returns:
+            float: Score in [0.0, 1.0] representing the degree to which the predicate is satisfied.
+                   For atomic predicates, this is the fraction of frames satisfying the condition.
+                   For AND: minimum score across all sub-expressions (conjunction semantics)
+                   For OR: maximum score across all sub-expressions (disjunction semantics)
+                   For NOT: 1.0 - score of the negated expression
+        """
         if expr.op == "ATOM":
             if expr.atom is None:
                 raise ValueError("ATOM operation requires an atom")
@@ -523,20 +544,41 @@ class QueryCompiler:
         
         elif expr.op == "AND":
             if expr.args is None or len(expr.args) == 0:
-                return True  # Empty AND is True
-            return all(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                return 1.0  # Empty AND is True
+
+            if use_logical_aggregation:
+                # AND semantics: take minimum score (all conditions must be satisfied)
+                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                         for arg in expr.args]
+                return min(scores)
+            else:
+                # AND semantics: take the score of the first argument
+                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
                       for arg in expr.args)
         
         elif expr.op == "OR":
             if expr.args is None or len(expr.args) == 0:
-                return False  # Empty OR is False
-            return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                return 0.0  # Empty OR is False
+
+            if use_logical_aggregation:
+                # OR semantics: take maximum score (at least one condition should be satisfied)
+                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                     for arg in expr.args]
+                return max(scores)
+            else:
+                # OR semantics: take the score of the first argument
+                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
                       for arg in expr.args)
         
         elif expr.op == "NOT":
             if expr.args is None or len(expr.args) != 1:
                 raise ValueError("NOT operation requires exactly one argument")
-            return not self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
+            # NOT semantics: complement the score
+            if use_logical_aggregation:
+                score = self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
+                return 1.0 - score
+            else:
+                return not self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
         
         else:
             raise ValueError(f"Unknown predicate operation: {expr.op}")
@@ -544,8 +586,13 @@ class QueryCompiler:
     
     def evaluate_predicate_atom_with_binding(self, atom: PredicateAtom, 
                                            frame_window: Tuple[int, int], 
-                                           object_assignment: Dict[str, int]) -> bool:
-        """Evaluate a single predicate atom with object binding"""
+                                           object_assignment: Dict[str, int]) -> float:
+        """Evaluate a single predicate atom with object binding.
+        
+        Returns:
+            float: Score in [0.0, 1.0] representing the fraction of frames in the window
+                   that satisfy the predicate condition
+        """
         try:
             # Look up UDF in registry
             if atom.type not in self.all_udfs:
@@ -605,7 +652,7 @@ class QueryCompiler:
 
         except Exception as e:
             self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
-            return False
+            return 0.0
 
     def _collect_atoms(self, expr: PredicateExpr) -> List[PredicateAtom]:
         if expr.op == "ATOM" and expr.atom is not None:
