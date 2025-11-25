@@ -5,6 +5,13 @@ from typing import List, Literal, Optional, Tuple, Dict, Union, Any
 from .registry import UDFRegistry, GLOBAL_UDF_REGISTRY
 import json
 
+class DiscreteSlider(BaseModel):
+    '''
+    A discrete slider is a slider that can be used to select a value between a low and high tolerance.
+    '''
+    low_tolernace: float
+    medium_tolernace: float
+    high_tolernace: float
 
 class PredicateAtom(BaseModel):
     # TODO: can we connect this to UDFRegistry dynamically?
@@ -21,8 +28,8 @@ class PredicateAtom(BaseModel):
     # optional rhs target (for pairwise predicates)
     other_obj: Optional[str] = None
     # numeric params (angles/thresholds/boxes)
-    value: Optional[float] = None
-    tol: Optional[float] = None
+    value: Optional[float | DiscreteSlider] = None
+    tol: Optional[float | DiscreteSlider] = None
     bbox: Optional[Tuple[float, float, float, float]] = None
     label: Optional[str] = None  # e.g. action label
 
@@ -85,6 +92,7 @@ class QuerySpec(BaseModel):
         names = [k.name for k in v]
         assert len(names) == len(set(names)), "Duplicate keyframe names"
         return v
+
 
     
 def print_spec_details(spec: QuerySpec):
