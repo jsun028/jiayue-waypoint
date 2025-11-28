@@ -667,6 +667,10 @@ class QueryCompiler:
             # Get parameter mapping from registry
             param_mapping = self.registry.get_udf_param_mapping(atom.type)
             
+            # DEBUG: Log param mapping
+            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj'] and param_mapping:
+            #     self.logger.debug(f"Param mapping for {atom.type}: {param_mapping}")
+            
             # Build keyword arguments based on UDF's parameter mapping
             kwargs = {}
             
@@ -691,12 +695,20 @@ class QueryCompiler:
                     else:
                         # Resolve DiscreteSlider values based on current setting
                         if isinstance(atom_val, DiscreteSlider):
-                            kwargs[param_name] = atom_val.resolve(self.slider_setting)
+                            resolved_val = atom_val.resolve(self.slider_setting)
+                            kwargs[param_name] = resolved_val
+                            # DEBUG: Log slider resolution
+                            # if self.logger:
+                            #     self.logger.debug(f"Slider resolved: {param_name}={resolved_val} (setting={self.slider_setting}, slider={atom_val})")
                         else:
                             kwargs[param_name] = atom_val
 
             # Get actual track_id from alias
             resolved_obj = resolve_object_alias(atom.obj, object_assignment)
+        
+            # DEBUG: Log the kwargs being passed
+            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj']:
+            #     self.logger.debug(f"UDF {atom.type} called with kwargs: {kwargs}")
         
             # Handle pairwise predicates (e.g., dist_apart)
             if atom.other_obj is not None:
@@ -710,6 +722,10 @@ class QueryCompiler:
                 # Add frame_window to kwargs and pass all as keyword arguments
                 kwargs['frame_window'] = frame_window
                 result = udf_func(resolved_obj, **kwargs)
+            
+            # # DEBUG: Log the result
+            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj']:
+            #     self.logger.debug(f"UDF {atom.type} returned: {result}")
 
             # Assume UDF returns a score between 0 and 1, or a boolean
             if isinstance(result, bool):

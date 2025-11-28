@@ -34,6 +34,14 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 - Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
 
+Discrete Sliders for Tunable Values:
+- For numeric parameters like "value" and "tol" (tolerance), you SHOULD use DiscreteSlider objects instead of plain floats.
+- A DiscreteSlider has three settings: {"low": <restrictive>, "medium": <balanced>, "high": <permissive>}
+- This allows users to adjust query selectivity after generation without regenerating the entire spec.
+- Example: Instead of "value": 15.0, use "value": {"low": 10.0, "medium": 15.0, "high": 20.0}
+- Use sliders for: velocity thresholds, distance thresholds, angle tolerances, time durations
+- The "medium" value should be your best estimate; "low" is more selective, "high" is more permissive
+
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
 
@@ -66,6 +74,7 @@ Other guidance:
 - Keep the number of objects minimal for the story; use the ego alias only when the NL explicitly refers to the ego vehicle (e.g., "ego nearly hits pedestrian").
 - Prefer agent-ego predicates (e.g., heading_diff_agent_to_ego) when relating an agent to the ego; use agent-agent predicates for agent pairs.
 - Don't be too restrictive with predicates/constraints, especially if we are chaining multiple keyframes. Mathematically you can imagine each constraint is a probability multiplier of the previous keyframe, meaning if the first keyframe is very unlikely, the entire query will be very unlikely.
+- Remember to use DiscreteSlider objects for all numeric thresholds and tolerances to enable post-generation tuning.
 """
 
 
@@ -95,17 +104,25 @@ FEWSHOT_JSON = {
                             "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
-                            "value": 180.0,
-                            "tol": 15.0,
+                            "value": {"low": 170.0, "medium": 180.0, "high": 190.0},
+                            "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car1", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car1", 
+                            "value": {"low": 1.5, "medium": 2.0, "high": 2.5}
+                        },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car2", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car2", 
+                            "value": {"low": 1.5, "medium": 2.0, "high": 2.5}
+                        },
                     },
                 ],
             },
@@ -121,17 +138,25 @@ FEWSHOT_JSON = {
                             "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
-                            "value": 90.0,
-                            "tol": 15.0,
+                            "value": {"low": 85.0, "medium": 90.0, "high": 95.0},
+                            "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car1", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car1", 
+                            "value": {"low": 1.5, "medium": 2.0, "high": 2.5}
+                        },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car2", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car2", 
+                            "value": {"low": 1.5, "medium": 2.0, "high": 2.5}
+                        },
                     },
                 ],
             },
