@@ -32,6 +32,7 @@ def build_command(
     track_stats: bool,
     limit: Optional[int],
     dedup_threshold: Optional[float],
+    slider_setting: str,
 ) -> List[str]:
     cmd: List[str] = [
         CONDA_PYTHON,
@@ -42,6 +43,8 @@ def build_command(
         str(data_path),
         "--out",
         str(out_json_path),
+        "--slider-setting",
+        slider_setting,
     ]
     if coverage is not None:
         cmd += ["--coverage", str(coverage)]
@@ -88,6 +91,7 @@ def run_single(
     dedup_threshold: Optional[float],
     overwrite: bool,
     env: Optional[dict],
+    slider_setting: str,
 ) -> Tuple[Path, bool, int]:
     sample_out_dir.mkdir(parents=True, exist_ok=True)
     results_json_path = sample_out_dir / "results.json"
@@ -108,6 +112,7 @@ def run_single(
         track_stats=track_stats,
         limit=limit,
         dedup_threshold=dedup_threshold,
+        slider_setting=slider_setting,
     )
 
     # Ensure environment inherits current plus any overrides
@@ -147,6 +152,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--viz", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--dedup-threshold", type=float, default=None)
+    
+    # Slider settings configuration
+    parser.add_argument("--slider-settings", type=str, default="low,medium,high",
+                       help="Comma-delimited slider settings to run (e.g., 'low,medium,high' or 'medium' or 'low,high')")
 
     return parser.parse_args()
 
@@ -164,14 +173,30 @@ def main() -> None:
         print("No data files found. Nothing to do.")
         return
 
-    print(f"Discovered {len(data_files)} data files. Running up to {args.max_workers} in parallel.")
+    # Parse slider settings from comma-delimited string
+    slider_settings = [s.strip() for s in args.slider_settings.split(",") if s.strip()]
+    if not slider_settings:
+        print("Error: No valid slider settings provided.")
+        return
+    
+    # Validate slider settings
+    valid_settings = {"low", "medium", "high"}
+    invalid = [s for s in slider_settings if s not in valid_settings]
+    if invalid:
+        print(f"Error: Invalid slider settings: {invalid}. Valid options are: low, medium, high")
+        return
+    
+    total_runs = len(data_files) * len(slider_settings)
+    print(f"Discovered {len(data_files)} data files × {len(slider_settings)} slider settings {slider_settings} = {total_runs} total runs.")
+    print(f"Running up to {args.max_workers} in parallel.")
 
     futures = []
     results: List[Tuple[Path, bool, int]] = []
 
-    def submit(executor: ThreadPoolExecutor, idx: int, data_path: Path):
-        subdir_name = f"{idx:05d}_" + data_path.stem
-        sample_out_dir = master_out_dir / subdir_name
+    def submit(executor: ThreadPoolExecutor, idx: int, data_path: Path, slider_setting: str):
+        # Create directory structure: low/00001_scene-0225/, medium/00001_scene-0225/, high/00001_scene-0225/
+        base_subdir_name = f"{idx:05d}_" + data_path.stem
+        sample_out_dir = master_out_dir / slider_setting / base_subdir_name
         return executor.submit(
             run_single,
             spec_path,
@@ -184,11 +209,14 @@ def main() -> None:
             args.dedup_threshold,
             args.overwrite,
             None,
+            slider_setting,
         )
 
     with ThreadPoolExecutor(max_workers=max(1, int(args.max_workers))) as executor:
         for idx, data_path in enumerate(data_files, start=1):
-            futures.append(submit(executor, idx, data_path))
+            # Submit jobs for all three slider settings
+            for slider_setting in slider_settings:
+                futures.append(submit(executor, idx, data_path, slider_setting))
 
         for fut in as_completed(futures):
             try:
@@ -196,7 +224,9 @@ def main() -> None:
                 results.append(res)
                 out_dir, nonempty, return_code = res
                 status = "OK" if return_code == 0 else f"RC={return_code}"
-                print(f"Completed: {out_dir.name} → results={'nonempty' if nonempty else 'empty'} ({status})")
+                # Show relative path from master_out_dir for clarity
+                rel_path = out_dir.relative_to(master_out_dir)
+                print(f"Completed: {rel_path} → results={'nonempty' if nonempty else 'empty'} ({status})")
             except Exception as e:
                 print(f"Worker failed with exception: {e}")
 
