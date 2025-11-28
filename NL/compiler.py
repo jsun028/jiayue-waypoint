@@ -9,23 +9,16 @@ from tqdm import tqdm
 
 from NL.registry import UDFRegistry
 from NL.specs import (
-    PredicateAtom,
-    PredicateExpr,
     KeyframeSpec,
     QuerySpec,
-    AlwaysSpec,
-    InterframeSpec,
-    TrajectorySpec,
-    DiscreteSlider,
 )
 from typing import Dict, List, Tuple
 from NL.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
     find_common_time_range,
-    resolve_object_alias,
 )
-from collections import defaultdict, Counter
+from NL.evaluator import QueryEvaluator
 from NL.optimizer.selectivity_integration import SelectivityIntegration
 
 
@@ -39,16 +32,17 @@ class QueryCompiler:
         self.all_udfs = registry.get_all_udfs()
         self.logger = logger
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df, registry=registry)
-        # Slider setting: "low", "medium", or "high" for resolving DiscreteSlider values
-        self.slider_setting = slider_setting
         # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0
         if coverage is None:
             coverage = 1.0
         self.coverage = max(0.0, min(1.0, coverage))
         self.dedup_threshold = dedup_threshold
         self.limit = limit
+        # Query evaluator
+        self.evaluator = QueryEvaluator(df, registry, self.fps, slider_setting, logger)
+
         # Stats toggle
-        self.track_stats = bool(track_stats)
+        self.track_stats = track_stats
         # Metrics and diagnostics
         self.predicate_stats = {}
         self.reject_counters = {
@@ -255,7 +249,7 @@ class QueryCompiler:
                         continue
 
                 # Evaluate cross-constraints only if not overlapping
-                ok, cross_score, score_details = self.eval_cross_constraints(
+                ok, cross_score, score_details = self.evaluator.evaluate_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
 
@@ -324,44 +318,6 @@ class QueryCompiler:
         
         return results
 
-    def eval_cross_constraints(self, positions: Dict[str, int], 
-                             keyframes_dict: Dict[str, KeyframeSpec],
-                             constraints: List, 
-                             object_assignment: Dict[str, int]) -> Tuple[bool, float, Dict]:
-        """
-        Evaluate cross-constraints for a given combination of keyframe positions
-        Returns: (is_valid, cross_constraint_score, score_details)
-        """
-        
-        score_details = {}
-        total_cross_score = 0.0
-        
-        # Extract cross-anchored constraints
-        cross_anchored_constraints = []
-        for constraint in constraints:
-            if constraint.kind in ["interframe", "eventually"] and hasattr(constraint, 'anchor') and constraint.anchor is not None:
-                cross_anchored_constraints.append(constraint)
-            elif constraint.kind == "always" and constraint.anchor is not None:
-                cross_anchored_constraints.append(constraint)
-        
-        # Evaluate each cross-constraint
-        for constraint in cross_anchored_constraints:
-            constraint_score = self.evaluate_cross_constraint(
-                constraint, positions, keyframes_dict, object_assignment
-            )
-            
-            constraint_key = f"{constraint.kind}_{constraint.anchor}_{constraint.target}"
-            score_details[constraint_key] = constraint_score  # Store fractional score
-            
-            # Cross-constraints are hard requirements: score must be > 0
-            if constraint_score == 0.0:
-                # If any cross-constraint completely fails, the whole combination is invalid
-                return False, 0.0, score_details
-            else:
-                # Add the fractional score (not just 1.0)
-                total_cross_score += constraint_score
-        
-        return True, total_cross_score, score_details
 
     def _assignment_key(self, assignment: Dict[str, int]):
         """Stable, hashable key for overlap tracking for a given object assignment."""
@@ -416,7 +372,7 @@ class QueryCompiler:
             frame_candidates = []
             
             # Collect all atoms for debugging
-            all_atoms = self._collect_atoms(kf_spec.where)
+            all_atoms = self.evaluator._collect_atoms(kf_spec.where)
             # Track satisfied frames per predicate for debugging
             predicate_satisfied_frames = {}
             for atom in all_atoms:
@@ -461,7 +417,8 @@ class QueryCompiler:
                     atom_key += ")"
                     
                     try:
-                        atom_score = self.evaluate_predicate_atom_with_binding(atom, frame_window, object_assignment)
+                        atom_score = self.evaluator.evaluate_predicate_atom_with_binding(
+                            atom, frame_window, object_assignment)
                     except Exception as e:
                         atom_score = 0.0
                         if self.logger:
@@ -482,7 +439,7 @@ class QueryCompiler:
                         if isinstance(atom_score, (int, float)):
                             self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
-                score = self.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
+                score = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
                     frame_candidates.append((frame_idx, score))
             
@@ -506,243 +463,5 @@ class QueryCompiler:
             candidates[kf_name] = frame_candidates
         
         return candidates
-
-    def evaluate_cross_constraint(self, constraint, positions: Dict[str, int],
-                                keyframes_dict: Dict[str, KeyframeSpec], 
-                                object_assignment: Dict[str, int]) -> float:
-        """Evaluate a cross-anchored constraint.
-        
-        Returns:
-            float: Score in [0.0, 1.0] representing constraint satisfaction.
-                   For 'always': fraction of frames in the duration window that satisfy the target.
-                   For 'interframe': 1.0 if timing matches, 0.0 otherwise (binary for now).
-        """
-        
-        if constraint.kind == "interframe":
-            anchor_pos = positions.get(constraint.anchor)
-            target_pos = positions.get(constraint.target)
-            
-            if anchor_pos is None or target_pos is None:
-                return 0.0
-            
-            expected_shift = self.seconds_to_frames(constraint.time_shift)
-            actual_shift = target_pos - anchor_pos
-            
-            # Check if the time shift is approximately correct
-            tolerance = self.seconds_to_frames(0.1)  # 0.1 second tolerance
-            time_shift_ok = abs(actual_shift - expected_shift) <= tolerance
-            
-            if not time_shift_ok:
-                # track rejection
-                if hasattr(self, 'reject_counters'):
-                    self.reject_counters['interframe'] += 1
-                return 0.0
-            
-            # Check comparators if present
-            if hasattr(constraint, 'comparators') and constraint.comparators:
-                for comparator in constraint.comparators:
-                    # This would involve evaluating additional constraints between the two keyframes
-                    # Implementation depends on the specific comparator format
-                    pass
-            
-            return 1.0
-        
-        elif constraint.kind == "always" and constraint.anchor is not None:
-            # Cross-anchored always: check that target keyframe holds for duration after anchor
-            anchor_pos = positions.get(constraint.anchor)
-            target_pos = positions.get(constraint.target)
-            
-            if anchor_pos is None or target_pos is None:
-                if hasattr(self, 'reject_counters'):
-                    self.reject_counters['cross_always'] += 1
-                return 0.0
-            
-            # The target should be satisfied for the duration starting from anchor
-            duration_frames = self.seconds_to_frames(constraint.duration_sec)
-            always_window = (anchor_pos, anchor_pos + duration_frames)
-            
-            target_kf = keyframes_dict.get(constraint.target)
-            if target_kf:
-                # Returns fractional score: fraction of frames in the window that satisfy target
-                score = self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
-                if score == 0.0 and hasattr(self, 'reject_counters'):
-                    self.reject_counters['cross_always'] += 1
-                return score  # Return the fractional score (0.0-1.0)
-            
-            if hasattr(self, 'reject_counters'):
-                self.reject_counters['cross_always'] += 1
-            return 0.0
-        
-        return 0.0
+   
     
-    
-    def evaluate_keyframe_with_binding(self, keyframe_spec: KeyframeSpec, 
-                                     frame_window: Tuple[int, int], 
-                                     object_assignment: Dict[str, int]) -> float:
-        """Evaluate a keyframe with a specific object assignment.
-        
-        Returns:
-            float: Score in [0.0, 1.0] representing how well the keyframe predicate is satisfied
-        """
-        return self.evaluate_predicate_expr_with_binding(
-            keyframe_spec.where, frame_window, object_assignment
-        )
-
-    def evaluate_predicate_expr_with_binding(self, expr: PredicateExpr, 
-                                           frame_window: Tuple[int, int], 
-                                           object_assignment: Dict[str, int], use_logical_aggregation: bool = True) -> float:
-        """Recursively evaluate a predicate expression tree with object binding.
-        
-        Returns:
-            float: Score in [0.0, 1.0] representing the degree to which the predicate is satisfied.
-                   For atomic predicates, this is the fraction of frames satisfying the condition.
-                   For AND: minimum score across all sub-expressions (conjunction semantics)
-                   For OR: maximum score across all sub-expressions (disjunction semantics)
-                   For NOT: 1.0 - score of the negated expression
-        """
-        if expr.op == "ATOM":
-            if expr.atom is None:
-                raise ValueError("ATOM operation requires an atom")
-            return self.evaluate_predicate_atom_with_binding(expr.atom, frame_window, object_assignment)
-        
-        elif expr.op == "AND":
-            if expr.args is None or len(expr.args) == 0:
-                return 1.0  # Empty AND is True
-
-            if use_logical_aggregation:
-                # AND semantics: take minimum score (all conditions must be satisfied)
-                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                         for arg in expr.args]
-                return min(scores)
-            else:
-                # AND semantics: take the score of the first argument
-                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                      for arg in expr.args)
-        
-        elif expr.op == "OR":
-            if expr.args is None or len(expr.args) == 0:
-                return 0.0  # Empty OR is False
-
-            if use_logical_aggregation:
-                # OR semantics: take maximum score (at least one condition should be satisfied)
-                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                     for arg in expr.args]
-                return max(scores)
-            else:
-                # OR semantics: take the score of the first argument
-                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                      for arg in expr.args)
-        
-        elif expr.op == "NOT":
-            if expr.args is None or len(expr.args) != 1:
-                raise ValueError("NOT operation requires exactly one argument")
-            # NOT semantics: complement the score
-            if use_logical_aggregation:
-                score = self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
-                return 1.0 - score
-            else:
-                return not self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
-        
-        else:
-            raise ValueError(f"Unknown predicate operation: {expr.op}")
-
-    
-    def evaluate_predicate_atom_with_binding(self, atom: PredicateAtom, 
-                                           frame_window: Tuple[int, int], 
-                                           object_assignment: Dict[str, int]) -> float:
-        """Evaluate a single predicate atom with object binding.
-        
-        Returns:
-            float: Score in [0.0, 1.0] representing the fraction of frames in the window
-                   that satisfy the predicate condition
-        """
-        try:
-            # Look up UDF in registry
-            if atom.type not in self.all_udfs:
-                raise ValueError(f"Unknown UDF: {atom.type}")
-            
-            udf_func = self.all_udfs[atom.type]
-            
-            # Get parameter mapping from registry
-            param_mapping = self.registry.get_udf_param_mapping(atom.type)
-            
-            # DEBUG: Log param mapping
-            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj'] and param_mapping:
-            #     self.logger.debug(f"Param mapping for {atom.type}: {param_mapping}")
-            
-            # Build keyword arguments based on UDF's parameter mapping
-            kwargs = {}
-            
-            # Map atom attributes to UDF parameters based on metadata
-            atom_values = {
-                'value': atom.value,
-                'tol': atom.tol,
-                'bbox': atom.bbox,
-                'label': atom.label,
-                'mode': atom.mode,
-            }
-            
-            # Build kwargs using the parameter names from the UDF signature
-            for param_name, atom_attr in param_mapping.items():
-                atom_val = atom_values.get(atom_attr)
-                if atom_val is not None:
-                    # Special handling for bbox which is a tuple - still needs unpacking
-                    if atom_attr == 'bbox':
-                        # For bbox, we'd need to know the param names (x1, y1, x2, y2)
-                        # For now, skip bbox in kwargs - this is a TODO if needed
-                        pass
-                    else:
-                        # Resolve DiscreteSlider values based on current setting
-                        if isinstance(atom_val, DiscreteSlider):
-                            resolved_val = atom_val.resolve(self.slider_setting)
-                            kwargs[param_name] = resolved_val
-                            # DEBUG: Log slider resolution
-                            # if self.logger:
-                            #     self.logger.debug(f"Slider resolved: {param_name}={resolved_val} (setting={self.slider_setting}, slider={atom_val})")
-                        else:
-                            kwargs[param_name] = atom_val
-
-            # Get actual track_id from alias
-            resolved_obj = resolve_object_alias(atom.obj, object_assignment)
-        
-            # DEBUG: Log the kwargs being passed
-            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj']:
-            #     self.logger.debug(f"UDF {atom.type} called with kwargs: {kwargs}")
-        
-            # Handle pairwise predicates (e.g., dist_apart)
-            if atom.other_obj is not None:
-                resolved_other_obj = resolve_object_alias(atom.other_obj, object_assignment)
-                # For pairwise predicates, we need to pass both object assignments
-                # Add frame_window to kwargs and pass all as keyword arguments
-                kwargs['frame_window'] = frame_window
-                result = udf_func(resolved_obj, resolved_other_obj, **kwargs)
-            else:
-                # Single object predicates
-                # Add frame_window to kwargs and pass all as keyword arguments
-                kwargs['frame_window'] = frame_window
-                result = udf_func(resolved_obj, **kwargs)
-            
-            # # DEBUG: Log the result
-            # if self.logger and atom.type in ['car_can_see_agent', 'dist_within_two_obj']:
-            #     self.logger.debug(f"UDF {atom.type} returned: {result}")
-
-            # Assume UDF returns a score between 0 and 1, or a boolean
-            if isinstance(result, bool):
-                return float(result)
-            elif isinstance(result, (float, int)):
-                return float(result)
-            else:
-                raise ValueError(f"UDF returned unsupported type: {type(result)}")
-
-        except Exception as e:
-            self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
-            return 0.0
-
-    def _collect_atoms(self, expr: PredicateExpr) -> List[PredicateAtom]:
-        if expr.op == "ATOM" and expr.atom is not None:
-            return [expr.atom]
-        atoms: List[PredicateAtom] = []
-        if expr.args:
-            for sub in expr.args:
-                atoms.extend(self._collect_atoms(sub))
-        return atoms

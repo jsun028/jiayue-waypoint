@@ -34,7 +34,7 @@ case "$MODE" in
         done
         
         # Run query generation
-        python -m NL_dspy "${ARGS[@]}"
+        python3 -m NL_dspy "${ARGS[@]}"
         ;;
     
     execute)
