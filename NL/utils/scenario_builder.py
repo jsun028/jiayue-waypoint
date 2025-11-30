@@ -438,7 +438,37 @@ class ScenarioBuilder:
         self.next_agent_id += 1
         
         return agent
-    
+            
+    def _record_agent_state(self, state, agent, frame_idx):
+        # Create bounding box from position and dimensions
+        length, width = agent.dimensions
+        half_length = length / 2
+        half_width = width / 2
+                
+        # Axis-aligned bounding box (simplified)
+        # For proper visualization, the viz code handles rotation
+        x1 = state.x - half_length
+        y1 = state.y - half_width
+        x2 = state.x + half_length
+        y2 = state.y + half_width
+                
+        # Record frame data
+        return {
+            'frame_index': frame_idx,
+            'track_id': agent.agent_id,
+            'class_name': agent.class_name,
+            'x1': x1,
+            'y1': y1,
+            'x2': x2,
+            'y2': y2,
+            'vel_x': state.vel_x,
+            'vel_y': state.vel_y,
+            'acc_x': state.acc_x,
+            'acc_y': state.acc_y,
+            'agent_yaw': state.heading,
+            'confidence': 1.0
+        }
+
     def build(self) -> pd.DataFrame:
         """
         Build the scenario and return a DataFrame compatible with the visualization tools.
@@ -451,9 +481,11 @@ class ScenarioBuilder:
         
         for agent in self.agents:
             state = agent.initial_state.copy()
+            # Record agent's INITIAL state
+            records.append(self._record_agent_state(state, agent, 0))
             command_idx = 0
             
-            for frame_idx in range(self.num_frames):
+            for frame_idx in range(1, self.num_frames+1):
                 # Get current command
                 if command_idx < len(agent.commands):
                     current_cmd = agent.commands[command_idx]
@@ -469,34 +501,7 @@ class ScenarioBuilder:
                     idle_cmd = IdleCommand(duration_frames=1)
                     state = idle_cmd.execute_frame(state, self.dt, self.rng)
                 
-                # Create bounding box from position and dimensions
-                length, width = agent.dimensions
-                half_length = length / 2
-                half_width = width / 2
-                
-                # Axis-aligned bounding box (simplified)
-                # For proper visualization, the viz code handles rotation
-                x1 = state.x - half_length
-                y1 = state.y - half_width
-                x2 = state.x + half_length
-                y2 = state.y + half_width
-                
-                # Record frame data
-                records.append({
-                    'frame_index': frame_idx,
-                    'track_id': agent.agent_id,
-                    'class_name': agent.class_name,
-                    'x1': x1,
-                    'y1': y1,
-                    'x2': x2,
-                    'y2': y2,
-                    'vel_x': state.vel_x,
-                    'vel_y': state.vel_y,
-                    'acc_x': state.acc_x,
-                    'acc_y': state.acc_y,
-                    'agent_yaw': state.heading,
-                    'confidence': 1.0
-                })
+                records.append(self._record_agent_state(state, agent, frame_idx))
         
         return pd.DataFrame(records)
     
