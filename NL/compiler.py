@@ -39,7 +39,6 @@ class QueryCompiler:
         self.all_udfs = registry.get_all_udfs()
         self.logger = logger
         self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df, registry=registry)
-        self.sel_int = SelectivityIntegration(metadata_path=metadata_path, df=df)
         # Slider setting: "low", "medium", or "high" for resolving DiscreteSlider values
         self.slider_setting = slider_setting
         # Coverage: fraction of frames to scan (0 < coverage ≤ 1), default None -> 1.0

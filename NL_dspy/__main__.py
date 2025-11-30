@@ -9,8 +9,8 @@ import pathlib
 import sys
 
 from NL.specs import print_spec_details
-from loguru import logger
 
+from loguru import logger
 logger.add("nl_dspy_runs.log", rotation="1 week")
 
 try:
