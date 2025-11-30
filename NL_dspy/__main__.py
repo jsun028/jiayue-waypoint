@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from NL.specs import print_spec_details
 
 from loguru import logger
