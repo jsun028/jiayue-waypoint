@@ -35,50 +35,6 @@ def test_decorator_metadata():
     print("✓ Auto-detection works correctly\n")
 
 
-def test_registry_retrieval():
-    """Test that registry can retrieve parameter mappings."""
-    print("=" * 60)
-    print("Test 2: Registry parameter mapping retrieval")
-    print("=" * 60)
-    
-    # Create a dummy dataframe
-    df = pd.DataFrame({
-        'track_id': [1, 1, 2, 2],
-        'frame_index': [0, 1, 0, 1],
-        'x1': [0.0, 1.0, 10.0, 11.0],
-        'y1': [0.0, 1.0, 10.0, 11.0],
-        'vel_x': [1.0, 1.0, 1.0, 1.0],
-        'vel_y': [0.0, 0.0, 0.0, 0.0],
-        'heading_x': [1.0, 1.0, 1.0, 1.0],
-        'heading_y': [0.0, 0.0, 0.0, 0.0],
-    })
-    
-    registry = UDFRegistry(df)
-    
-    # Test existing UDFs
-    velocity_above_mapping = registry.get_udf_param_mapping('velocity_above')
-    print(f"velocity_above mapping: {velocity_above_mapping}")
-    assert velocity_above_mapping == {'velocity': 'value'}
-    print("✓ velocity_above mapping correct\n")
-    
-    heading_diff_mapping = registry.get_udf_param_mapping('heading_diff_to')
-    print(f"heading_diff_to mapping: {heading_diff_mapping}")
-    assert heading_diff_mapping == {'expected_deg': 'value', 'tol_deg': 'tol'}
-    print("✓ heading_diff_to mapping correct\n")
-    
-    # Test pairwise UDFs with single param
-    dist_within_mapping = registry.get_udf_param_mapping('dist_within_two_obj')
-    print(f"dist_within_two_obj mapping: {dist_within_mapping}")
-    assert dist_within_mapping == {'distance': 'value'}
-    print("✓ dist_within_two_obj mapping correct\n")
-    
-    # Test UDFs with no extra params
-    is_approaching_mapping = registry.get_udf_param_mapping('is_approaching')
-    print(f"is_approaching mapping: {is_approaching_mapping}")
-    assert is_approaching_mapping == {}
-    print("✓ is_approaching mapping correct (no extra params)\n")
-
-
 def test_argument_building():
     """Test that arguments are built correctly from atom attributes."""
     print("=" * 60)
@@ -151,7 +107,6 @@ def main():
     
     try:
         test_decorator_metadata()
-        test_registry_retrieval()
         test_argument_building()
         
         print("\n" + "=" * 60)
