@@ -34,6 +34,38 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 - Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
 
+Discrete Sliders for Tunable Values:
+- For numeric parameters like "value" and "tol" (tolerance), you SHOULD use DiscreteSlider objects instead of plain floats.
+- A DiscreteSlider has three settings that users select at runtime to control query selectivity
+- User can run with --slider-setting=low (most selective), --slider-setting=medium (balanced), or --slider-setting=high (most permissive)
+- The "medium" value should be your best estimate; adjust low/high to create a useful tuning range
+
+CRITICAL - Slider Direction Based on Predicate Semantics:
+The slider keys "low"/"medium"/"high" refer to SELECTIVITY, not the numeric values!
+- "low" = most SELECTIVE (fewest results)
+- "medium" = balanced
+- "high" = most PERMISSIVE (most results)
+
+For "above/below" threshold predicates:
+- velocity_above(X): smaller X is easier to exceed (MORE results)
+  → {"low": 2.0, "medium": 1.0, "high": 0.5}  ← "high" selectivity uses small threshold
+- velocity_below(X): larger X is easier to stay under (MORE results)
+  → {"low": 0.05, "medium": 0.1, "high": 0.2}
+
+For distance predicates:
+- dist_within_two_obj(X): larger X allows more distant pairs (MORE results)
+  → {"low": 50.0, "medium": 100.0, "high": 200.0}
+
+For angle predicates:
+- heading_diff(value=A, tol=T): larger T accepts more variation (MORE results)
+  → value: {"low": 85, "medium": 90, "high": 95}  ← target angle doesn't affect selectivity much
+  → tol: {"low": 10, "medium": 20, "high": 30}    ← larger tolerance = more permissive
+
+Rule of thumb:
+- Ask: "Does a LARGER number make the predicate EASIER or HARDER to satisfy?"
+- Easier → use ascending values (low < medium < high)
+- Harder → use descending values (low > medium > high)
+
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
 
@@ -65,7 +97,19 @@ PredicateAtom construction guide:
 Other guidance:
 - Keep the number of objects minimal for the story; use the ego alias only when the NL explicitly refers to the ego vehicle (e.g., "ego nearly hits pedestrian").
 - Prefer agent-ego predicates (e.g., heading_diff_agent_to_ego) when relating an agent to the ego; use agent-agent predicates for agent pairs.
-- Don't be too restrictive with predicates/constraints, especially if we are chaining multiple keyframes. Mathematically you can imagine each constraint is a probability multiplier of the previous keyframe, meaning if the first keyframe is very unlikely, the entire query will be very unlikely.
+- Remember to use DiscreteSlider objects for all numeric thresholds and tolerances to enable post-generation tuning.
+
+CRITICAL - Avoiding Over-Constrained Queries:
+- Each predicate multiplies selectivity - more predicates = exponentially fewer matches
+- EARLY keyframes (k1) should be SIMPLER and BROADER to ensure matches exist before refining
+- Limit k1 to 2-4 predicates maximum; use the most essential conditions only
+- For multi-keyframe specs (3+), keep each keyframe to 2-3 predicates
+- Use BROAD slider ranges in early keyframes: "high" value should be quite permissive
+- Distance thresholds: use 50-300m for proximity (not <10m unless describing near-collision)
+- Angle tolerances: use at least ±15-30° tolerance in "medium" setting
+- Avoid combining multiple geometric predicates (heading + visibility + distance) in k1
+- Build narrative progression: k1 = setup (broad), k2 = development (medium), k3 = climax (tighter)
+- If a spec has N keyframes, the probability of finding a match is roughly P₁ × P₂ × ... × Pₙ where each Pᵢ < 1
 """
 
 
@@ -95,17 +139,25 @@ FEWSHOT_JSON = {
                             "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
-                            "value": 180.0,
-                            "tol": 15.0,
+                            "value": {"low": 170.0, "medium": 180.0, "high": 190.0},
+                            "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car1", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car1", 
+                            "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
+                        },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car2", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car2", 
+                            "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
+                        },
                     },
                 ],
             },
@@ -121,17 +173,25 @@ FEWSHOT_JSON = {
                             "type": "heading_diff_agent_to_agent",
                             "obj": "car1",
                             "other_obj": "car2",
-                            "value": 90.0,
-                            "tol": 15.0,
+                            "value": {"low": 85.0, "medium": 90.0, "high": 95.0},
+                            "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car1", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car1", 
+                            "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
+                        },
                     },
                     {
                         "op": "ATOM",
-                        "atom": {"type": "velocity_above", "obj": "car2", "value": 2.0},
+                        "atom": {
+                            "type": "velocity_above", 
+                            "obj": "car2", 
+                            "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
+                        },
                     },
                 ],
             },
@@ -161,6 +221,34 @@ FEWSHOT_JSON = {
         "car1 and car2 begin opposed while moving, then car1 slows to set up a right turn, "
         "and over ~3s completes a right-arc trajectory to align 90° from car2."
     ),
+}
+
+# ANTI-PATTERN: Over-constrained spec (AVOID THIS)
+FEWSHOT_BAD_JSON = {
+    "objects": {"counts": {"car": 1, "pedestrian": 1}},
+    "use_combinations": True,
+    "keyframes": [
+        {
+            "name": "k1",
+            "where": {
+                "op": "AND",
+                "args": [
+                    # BAD: Too many geometric constraints in k1
+                    {"op": "ATOM", "atom": {"type": "heading_diff_agent_to_agent", "obj": "car1", "other_obj": "pedestrian1", "value": 90.0, "tol": 10.0}},
+                    {"op": "ATOM", "atom": {"type": "car_can_see_agent", "obj": "car1", "other_obj": "pedestrian1", "value": 45.0, "tol": 10.0}},
+                    {"op": "ATOM", "atom": {"type": "dist_within_two_obj", "obj": "car1", "other_obj": "pedestrian1", "value": 30.0}},
+                    {"op": "ATOM", "atom": {"type": "velocity_above", "obj": "car1", "value": 1.0}},
+                ],
+            },
+        },
+        {
+            "name": "k2",
+            # BAD: Extreme distance threshold (1-3m is near-collision, very rare)
+            "where": {"op": "ATOM", "atom": {"type": "dist_within_two_obj", "obj": "car1", "other_obj": "pedestrian1", "value": {"low": 1.0, "medium": 2.0, "high": 3.0}}},
+        },
+    ],
+    "constraints": [],
+    "explanation": "ANTI-PATTERN: k1 has 4 geometric predicates (too restrictive), k2 has extreme proximity (1-3m). This will likely return zero results.",
 }
 
 
@@ -280,7 +368,8 @@ class SpecGenerator(dspy.Module):
         else:
             available = " (none)"
         header = PROMPT_HEADER.replace("{available_udfs}", available)
-        fewshot = _json_dumps(FEWSHOT_JSON)
+        fewshot_good = _json_dumps(FEWSHOT_JSON)
+        fewshot_bad = _json_dumps(FEWSHOT_BAD_JSON)
         stats_block = (
             f"\n\nDataset statistics (for grounding):\n{stats_text}\n"
             if stats_text
@@ -288,10 +377,11 @@ class SpecGenerator(dspy.Module):
         )
         return (
             f"{header}\n\n"
-            f"Example NL description:\n{FEWSHOT_USER}\n\n"
-            f"Example JSON spec:\n{fewshot}"
+            f"GOOD EXAMPLE - NL description:\n{FEWSHOT_USER}\n\n"
+            f"GOOD EXAMPLE - JSON spec (FOLLOW THIS PATTERN):\n{fewshot_good}\n\n"
+            f"BAD EXAMPLE - Over-constrained spec (AVOID THIS PATTERN):\n{fewshot_bad}"
             f"{stats_block}\n\n"
-            "Now respond to the new request. Return JSON ONLY."
+            "Now respond to the new request. Return JSON ONLY. Follow the GOOD pattern, avoid the BAD pattern."
             f"\n\nUser request:\n{nl_request}\n"
         )
 

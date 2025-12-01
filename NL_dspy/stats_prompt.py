@@ -51,10 +51,19 @@ def format_stats_for_prompt(metadata: dict[str, Any], *, max_classes: int = 6) -
             return None
         vmin = float(bins[0])
         vmax = float(bins[-1])
+        p5 = _quantile_from_hist(hist, 0.05)
+        p10 = _quantile_from_hist(hist, 0.10)
+        p25 = _quantile_from_hist(hist, 0.25)
         p50 = _quantile_from_hist(hist, 0.50)
         p75 = _quantile_from_hist(hist, 0.75)
         p90 = _quantile_from_hist(hist, 0.90)
         stats_parts = [f"range={vmin:.3g}..{vmax:.3g}"]
+        if p5 is not None:
+            stats_parts.append(f"p5={p5:.3g}")
+        if p10 is not None:
+            stats_parts.append(f"p10={p10:.3g}")
+        if p25 is not None:
+            stats_parts.append(f"p25={p25:.3g}")
         if p50 is not None:
             stats_parts.append(f"p50={p50:.3g}")
         if p75 is not None:

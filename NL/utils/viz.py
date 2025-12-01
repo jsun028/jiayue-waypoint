@@ -28,7 +28,7 @@ def _write_results_json(results, out_path: str) -> None:
     with open(out_path, "w") as f:
         json.dump(safe, f, indent=2, sort_keys=True)
 
-def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Path, fps: int = 10) -> None:
+def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Path, fps: int = 10, top_k: int | None = None) -> None:
     # Lazy import to avoid backend issues when not requested
     import matplotlib
     matplotlib.use("Agg")
@@ -45,12 +45,19 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
             # fallback to df bounds
             return int(df['frame_index'].min()), int(df['frame_index'].max())
 
-    for idx, res in enumerate(results):
+    # Sort by score (descending) and take top-k if specified
+    sorted_results = sorted(results, key=lambda x: x.get('aggregate_score', 0.0), reverse=True)
+    if top_k is not None and top_k > 0:
+        sorted_results = sorted_results[:top_k]
+        logger.info(f"Visualizing top {len(sorted_results)} results (top_k={top_k})")
+    
+    for idx, res in enumerate(sorted_results):
         assignment = res.get('object_assignment', {})
         highlight_ids = set(int(v) for v in assignment.values()) if assignment else set()
         time_range = res.get('time_range')
         start_f, end_f = _parse_time_range(time_range) if isinstance(time_range, str) else (int(df['frame_index'].min()), int(df['frame_index'].max()))
         frames = list(range(start_f, end_f + 1))
+        score = res.get('aggregate_score', 0.0)
 
         fig, ax = plt.subplots(figsize=(12, 12))
 
@@ -81,7 +88,7 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
                 rect = patches.Rectangle((x1, y1), w, h, linewidth=3.5, edgecolor='yellow', facecolor='none', alpha=0.9)
                 ax.add_patch(rect)
                 ax.text((x1 + x2) / 2, (y1 + y2) / 2, str(tid), ha='center', va='center', fontsize=10, color='yellow', weight='bold')
-            ax.set_title(f"Result {idx+1} – frame {frame_idx}")
+            ax.set_title(f"Result {idx+1} (score: {score:.4f}) – frame {frame_idx}")
             # Lock axis limits and aspect
             if xlim and ylim:
                 ax.set_xlim(*xlim)
@@ -90,7 +97,7 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
             ax.set_autoscale_on(False)
 
         anim = FuncAnimation(fig, lambda i: update(frames[i]), frames=len(frames), interval=1000 / max(1, fps), repeat=True)
-        out_path = out_dir / f"result_{idx+1}.gif"
+        out_path = out_dir / f"result_{idx+1}_score_{score:.4f}.gif"
         writer = PillowWriter(fps=fps)
         anim.save(out_path, writer=writer)
         plt.close(fig)

@@ -18,7 +18,8 @@ logger.add("runs.log", rotation="1 week")
 # Example usage
 def example_usage(spec_path, data_path, coverage: float | None = None, track_stats: bool = True, 
     out_path: str | None = None, do_viz: bool = False, viz_dir: str | None = None, limit: int | None = None, 
-    dedup_threshold: float | None = None, metadata_path: str | None = None, estimation_mode: bool = False):
+    dedup_threshold: float | None = None, metadata_path: str | None = None, estimation_mode: bool = False,
+    slider_setting: str = "medium"):
 
     # Sample data
     df = pd.read_csv(data_path)
@@ -45,12 +46,13 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
 
     print("[INFO] QueryCompiler initialized successfully with two-stage search implementation")
     print(f"Available UDFs: {list(registry.get_all_udfs().keys())}")
+    print(f"[INFO] Using slider setting: {slider_setting}")
     
     # def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
     compiler = QueryCompiler(
         registry=registry, df=df, logger=logger, 
         coverage=coverage, track_stats=track_stats, dedup_threshold=dedup_threshold, limit=limit, 
-        metadata_path=metadata_path)
+        metadata_path=metadata_path, slider_setting=slider_setting)
     # Execute query with two-stage search
     results = compiler.execute_query(spec, estimation_mode=estimation_mode)
     for result in results:
@@ -64,7 +66,7 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     if do_viz:
         out_dir = Path(viz_dir) if viz_dir else Path(out_path).with_suffix("").with_name(Path(out_path).stem + "_viz") if out_path else Path("viz_out")
         out_dir.mkdir(parents=True, exist_ok=True)
-        _generate_visualizations(df, results, out_dir)
+        _generate_visualizations(df, results, out_dir, top_k=limit)
     
 
 if __name__ == "__main__":
@@ -78,13 +80,15 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
     parser.add_argument("--viz", action="store_false", help="Generate visualization images per result keyframe")
     parser.add_argument("--viz-dir", type=str, default=None, help="Directory for visualization images (default derived from --out)")
-    parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return and visualize (top-k by score)")
     parser.add_argument("--dedup-threshold", type=float, default=0.25, help="Deduplication threshold for overlapping time windows")
     parser.add_argument("--metadata-path", type=str, default=None, help="Path to metadata JSON file")
     parser.add_argument("--estimation-mode", action="store_true", help="Enable estimation mode")
+    parser.add_argument("--slider-setting", type=str, default="medium", choices=["low", "medium", "high"],
+                       help="Slider setting for DiscreteSlider values: 'low' (most selective), 'medium' (balanced), 'high' (most permissive)")
     args = parser.parse_args()
 
-    logger.info(f"Running example usage with spec: {args.spec} and data: {args.data}, coverage={args.coverage}, track_stats={args.track_stats}, out={args.out}, viz={args.viz}")
+    logger.info(f"Running example usage with spec: {args.spec} and data: {args.data}, coverage={args.coverage}, track_stats={args.track_stats}, out={args.out}, viz={args.viz}, slider_setting={args.slider_setting}")
     example_usage(
         args.spec,
         args.data,
@@ -97,5 +101,6 @@ if __name__ == "__main__":
         dedup_threshold=args.dedup_threshold,
         metadata_path=args.metadata_path,
         estimation_mode=args.estimation_mode,
+        slider_setting=args.slider_setting,
     )
 

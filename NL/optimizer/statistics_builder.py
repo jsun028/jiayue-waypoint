@@ -13,7 +13,13 @@ class KeyframeQLStatisticsBuilder:
     """
 
     def __init__(self, dataset_path, bins=20, sample_ratio=1.0, ego_bins=10):
-        self.dataset_path = Path(dataset_path)
+        # Allow a single CSV path or a list of CSV paths
+        if isinstance(dataset_path, (list, tuple)):
+            self.dataset_paths = [Path(p) for p in dataset_path]
+            self.dataset_path = self.dataset_paths[0]
+        else:
+            self.dataset_paths = [Path(dataset_path)]
+            self.dataset_path = self.dataset_paths[0]
         self.bins = bins
         self.sample_ratio = sample_ratio
         self.ego_bins = ego_bins
@@ -24,9 +30,14 @@ class KeyframeQLStatisticsBuilder:
     # Load & preprocess
     # ------------------------------
     def load_dataset(self):
-        df = pd.read_csv(self.dataset_path)
-        if self.sample_ratio < 1.0:
-            df = df.sample(frac=self.sample_ratio, random_state=42)
+        # Load one or more CSVs and (optionally) sample each prior to concatenation
+        frames = []
+        for p in self.dataset_paths:
+            dfi = pd.read_csv(p)
+            if self.sample_ratio < 1.0:
+                dfi = dfi.sample(frac=self.sample_ratio, random_state=42)
+            frames.append(dfi)
+        df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
 
         # velocity magnitude (if available)
         if {"vel_x", "vel_y"}.issubset(df.columns):
@@ -264,8 +275,14 @@ class KeyframeQLStatisticsBuilder:
                 }
                 ego_meta = {"histograms": ego_hist, "summary": ego_summary}
 
+        # Derive a concise dataset name for multi-file cases
+        if len(self.dataset_paths) == 1:
+            dataset_name = self.dataset_paths[0].stem
+        else:
+            dataset_name = f"{self.dataset_paths[0].stem}_plus{len(self.dataset_paths) - 1}"
+
         self.metadata = {
-            "dataset_name": self.dataset_path.stem,
+            "dataset_name": dataset_name,
             "n_frames": int(n_frames) if n_frames is not None else None,
             "n_objects": int(n_objects),
             "class_distribution": class_dist,
@@ -285,7 +302,11 @@ class KeyframeQLStatisticsBuilder:
     def save_metadata(self, out_dir="metadata"):
         out_path = Path(out_dir)
         out_path.mkdir(parents=True, exist_ok=True)
-        out_file = out_path / f"{self.dataset_path.stem}_stats.json"
+        if len(self.dataset_paths) == 1:
+            base = self.dataset_paths[0].stem
+        else:
+            base = f"{self.dataset_paths[0].stem}_plus{len(self.dataset_paths) - 1}"
+        out_file = out_path / f"{base}_stats.json"
         with open(out_file, "w") as f:
             json.dump(self.metadata, f, indent=2)
         print(f"Statistics saved to {out_file}")

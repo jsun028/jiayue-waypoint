@@ -7,11 +7,22 @@ import json
 
 class DiscreteSlider(BaseModel):
     '''
-    A discrete slider is a slider that can be used to select a value between a low and high tolerance.
+    A discrete slider allows the user to adjust predicate selectivity post-generation.
+    The LLM generates three values (low/medium/high tolerance or threshold), 
+    and the user can switch between them to tune query behavior without regenerating the IR.
     '''
-    low_tolernace: float
-    medium_tolernace: float
-    high_tolernace: float
+    low: float      # Most restrictive / selective value
+    medium: float   # Balanced value (LLM's default choice)
+    high: float     # Least restrictive / permissive value
+    
+    def resolve(self, setting: str = "medium") -> float:
+        """Resolve the slider value based on the selected setting."""
+        if setting == "low":
+            return self.low
+        elif setting == "high":
+            return self.high
+        else:
+            return self.medium
 
 class PredicateAtom(BaseModel):
     # TODO: can we connect this to UDFRegistry dynamically?
@@ -32,6 +43,7 @@ class PredicateAtom(BaseModel):
     tol: Optional[float | DiscreteSlider] = None
     bbox: Optional[Tuple[float, float, float, float]] = None
     label: Optional[str] = None  # e.g. action label
+    mode: Optional[str|int] = None
 
 class PredicateExpr(BaseModel):
     # Boolean expression is expressed as a tree (AND/OR/NOT) over atoms.
