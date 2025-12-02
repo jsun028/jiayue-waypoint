@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--coverage", type=float, default=1.0, help="Fraction of frames to scan (0-1]")
     parser.add_argument("--track-stats", action="store_true", help="Enable predicate selectivity stats")
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
-    parser.add_argument("--viz", action="store_false", help="Generate visualization images per result keyframe")
+    parser.add_argument("--viz", action="store_true", help="Generate visualization images per result keyframe")
     parser.add_argument("--viz-dir", type=str, default=None, help="Directory for visualization images (default derived from --out)")
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of results to return and visualize (top-k by score)")
     parser.add_argument("--dedup-threshold", type=float, default=0.25, help="Deduplication threshold for overlapping time windows")
