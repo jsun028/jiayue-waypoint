@@ -5,7 +5,7 @@ python3 NL_dspy/__main__.py  --model "openai/gpt-5" --dump-pickle unseen_stop_pe
 ```
 Run spec on a single setting
 ```
-python3 main.py --spec unseen_stop_ped_fixed_sliders_2.pkl --data dataset/scene_scene-0301.csv --slider-setting medium --coverage 0.1 --track-stats --limit 5 --dedup-threshold 0.15 --viz --viz-dir ped_stop/medium/00070_scene_scene-0301/viz
+python3 main.py --spec unseen_stop_ped_fixed_sliders_2.pkl --data dataset/scene_scene-0301.csv --slider-setting medium --coverage 0.1 --track-stats --limit 5 --dedup-threshold 0.15 --viz --viz-dir viz_out/
 ```
 
 Run spec across all data and slider settings
