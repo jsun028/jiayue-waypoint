@@ -142,7 +142,7 @@ class QueryCompiler:
         if fixed_bindings and not object_assignments:
             object_assignments = [fixed_bindings.copy()]
         
-        print(f"object_assignments: {object_assignments}")
+        # print(f"[DEBUG] object_assignments: {object_assignments}")
 
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
@@ -163,7 +163,7 @@ class QueryCompiler:
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
 
-            print(f"candidate_frames: {candidate_frames}")
+            # print(f"candidate_frames: {candidate_frames}")
             
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
@@ -275,6 +275,7 @@ class QueryCompiler:
                     'object_assignment': assignment,
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
+                    'keyframe_scores': combination['individual_scores'],
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
                                      for alias in assignment.keys()},
