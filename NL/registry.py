@@ -125,6 +125,24 @@ class UDFRegistry:
         'car_can_see_agent',
         'car_in_relative_direction',
     )
+    
+    # Compositional system: computation functions (return raw values per frame)
+    _COMPUTATION_FUNCTION_NAMES = (
+        'distance',
+        'velocity',
+        'heading_diff',
+        'rotational_velocity',
+        'acceleration',
+    )
+    
+    # Compositional system: operator functions (score computed values)
+    _OPERATOR_FUNCTION_NAMES = (
+        'LessThan',
+        'GreaterThan',
+        'InRange',
+        'SoftClose',
+        'Equal',
+    )
 
     _GLOBAL_FUNCTIONS: Dict[str, Callable] = {}
 
@@ -138,6 +156,10 @@ class UDFRegistry:
         if cls._GLOBAL_FUNCTIONS:
             return
         for name in cls._BASE_FUNCTION_NAMES:
+            cls._GLOBAL_FUNCTIONS[name] = getattr(cls, name)
+        for name in cls._COMPUTATION_FUNCTION_NAMES:
+            cls._GLOBAL_FUNCTIONS[name] = getattr(cls, name)
+        for name in cls._OPERATOR_FUNCTION_NAMES:
             cls._GLOBAL_FUNCTIONS[name] = getattr(cls, name)
 
     def _build_udf_registry(self) -> Dict[str, Callable]:
@@ -830,6 +852,267 @@ def {name}(*args, **kwargs) -> float:
             )
         
         return condition.astype(float).mean()
+
+    # ========================================================================
+    # COMPOSITIONAL SYSTEM: COMPUTATION FUNCTIONS
+    # These return raw values (pd.Series) for each frame in the window
+    # ========================================================================
+    
+    def distance(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> pd.Series:
+        """Compute Euclidean distance between two objects for each frame.
+        
+        Args:
+            oid1: First track identifier.
+            oid2: Second track identifier.
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.Series indexed by frame_index containing distance values.
+            Empty series if objects don't overlap.
+        """
+        start_frame, end_frame = frame_window
+        
+        df_filtered = self.df[
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        data1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1']]
+        data2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
+        
+        common_data = data1.join(data2, how='inner', lsuffix='_1', rsuffix='_2')
+        
+        if common_data.empty:
+            return pd.Series(dtype=float)
+        
+        distances = np.sqrt(
+            (common_data['x1_1'] - common_data['x1_2'])**2 + 
+            (common_data['y1_1'] - common_data['y1_2'])**2
+        )
+        
+        return distances
+    
+    def velocity(self, object_id: int, frame_window: Tuple[int, int]) -> pd.Series:
+        """Compute velocity magnitude for an object for each frame.
+        
+        Args:
+            object_id: Track identifier.
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.Series indexed by frame_index containing velocity magnitudes.
+        """
+        start_frame, end_frame = frame_window
+        
+        object_data = self.df[
+            (self.df['track_id'] == object_id) & 
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        if object_data.empty:
+            return pd.Series(dtype=float)
+        
+        velocity_magnitudes = np.sqrt(
+            object_data['vel_x']**2 + object_data['vel_y']**2
+        )
+        
+        return velocity_magnitudes.set_axis(object_data['frame_index'].values)
+    
+    def heading_diff(self, oid1: int, oid2: int, frame_window: Tuple[int, int], 
+                     mode: Optional[str] = None) -> pd.Series:
+        """Compute heading difference between two objects for each frame.
+        
+        Args:
+            oid1: First track identifier (reference).
+            oid2: Second track identifier. If None, uses ego vehicle.
+            frame_window: Inclusive (start, end) frame indices.
+            mode: "to_ego" to compare oid1 against ego, None for agent-agent.
+        
+        Returns:
+            pd.Series indexed by frame_index containing heading differences in degrees.
+        """
+        start, end = frame_window
+        df_filtered = self.df[self.df['frame_index'].between(start, end)]
+        
+        if mode == "to_ego":
+            # Compare oid1 to ego
+            agent_series = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')['agent_yaw']
+            ego_mask = (df_filtered['track_id'] == 0) | (df_filtered.get('class_name', pd.Series(index=df_filtered.index, dtype=object)) == 'ego')
+            ego_series = df_filtered[ego_mask].drop_duplicates(subset=['frame_index']).set_index('frame_index')['agent_yaw']
+            
+            common = pd.DataFrame({'yaw1': agent_series}).join(ego_series.rename('yaw2'), how='inner')
+        else:
+            # Compare two agents
+            d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')['agent_yaw']
+            d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')['agent_yaw']
+            common = pd.DataFrame({'yaw1': d1, 'yaw2': d2}).dropna()
+        
+        if common.empty:
+            return pd.Series(dtype=float)
+        
+        # Calculate absolute heading difference
+        diff = np.degrees(np.abs(common['yaw2'] - common['yaw1'])) % 360
+        diff = np.where(diff > 180, 360 - diff, diff)
+        
+        return pd.Series(diff, index=common.index)
+    
+    def rotational_velocity(self, object_id: int, frame_window: Tuple[int, int]) -> pd.Series:
+        """Compute rotational velocity (yaw rate) for an object.
+        
+        Args:
+            object_id: Track identifier.
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.Series indexed by frame_index containing rotational velocities in degrees/frame.
+        """
+        start_frame, end_frame = frame_window
+        
+        object_data = self.df[
+            (self.df['track_id'] == object_id) & 
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ].sort_values('frame_index')
+        
+        if len(object_data) < 2:
+            return pd.Series(dtype=float)
+        
+        yaw_values = object_data['agent_yaw'].values
+        frame_indices = object_data['frame_index'].values
+        
+        yaw_diff = np.diff(yaw_values)
+        frame_diff = np.diff(frame_indices)
+        
+        rot_vel = np.degrees(yaw_diff) / np.maximum(frame_diff, 1)
+        rot_vel = (rot_vel + 180) % 360 - 180
+        
+        # Return series aligned with original frames (minus first frame)
+        return pd.Series(rot_vel, index=frame_indices[1:])
+    
+    def acceleration(self, object_id: int, frame_window: Tuple[int, int]) -> pd.Series:
+        """Compute acceleration magnitude for an object.
+        
+        Args:
+            object_id: Track identifier.
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.Series indexed by frame_index containing acceleration values.
+        """
+        start_frame, end_frame = frame_window
+        
+        object_data = self.df[
+            (self.df['track_id'] == object_id) & 
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ].sort_values('frame_index')
+        
+        if len(object_data) < 2:
+            return pd.Series(dtype=float)
+        
+        velocity_magnitudes = np.sqrt(
+            object_data['vel_x'].values**2 + object_data['vel_y'].values**2
+        )
+        frame_indices = object_data['frame_index'].values
+        
+        vel_diff = np.diff(velocity_magnitudes)
+        frame_diff = np.diff(frame_indices)
+        
+        accel = vel_diff / np.maximum(frame_diff, 1)
+        
+        return pd.Series(accel, index=frame_indices[1:])
+    
+    # ========================================================================
+    # COMPOSITIONAL SYSTEM: OPERATOR FUNCTIONS
+    # These take raw values (pd.Series) and return scores [0.0, 1.0]
+    # ========================================================================
+    
+    def LessThan(self, values: pd.Series, threshold: float) -> float:
+        """Score: fraction of frames where value < threshold.
+        
+        Args:
+            values: Raw values from computation function.
+            threshold: Upper bound (exclusive).
+        
+        Returns:
+            Score in [0.0, 1.0]: fraction of frames satisfying condition.
+        """
+        if values.empty:
+            return 0.0
+        return (values < threshold).astype(float).mean()
+    
+    def GreaterThan(self, values: pd.Series, threshold: float) -> float:
+        """Score: fraction of frames where value > threshold.
+        
+        Args:
+            values: Raw values from computation function.
+            threshold: Lower bound (exclusive).
+        
+        Returns:
+            Score in [0.0, 1.0]: fraction of frames satisfying condition.
+        """
+        if values.empty:
+            return 0.0
+        return (values > threshold).astype(float).mean()
+    
+    def InRange(self, values: pd.Series, min_val: float, max_val: float) -> float:
+        """Score: fraction of frames where min_val <= value <= max_val.
+        
+        Args:
+            values: Raw values from computation function.
+            min_val: Lower bound (inclusive).
+            max_val: Upper bound (inclusive).
+        
+        Returns:
+            Score in [0.0, 1.0]: fraction of frames in range.
+        """
+        if values.empty:
+            return 0.0
+        return ((values >= min_val) & (values <= max_val)).astype(float).mean()
+    
+    def SoftClose(self, values: pd.Series, target: float, hard_cutoff: float) -> float:
+        """Fuzzy proximity scoring: 1.0 at target, 0.0 beyond hard_cutoff.
+        
+        Uses linear interpolation between target and hard_cutoff for smooth scoring.
+        
+        Args:
+            values: Raw values from computation function.
+            target: Ideal value (scores 1.0).
+            hard_cutoff: Distance from target where score reaches 0.0.
+        
+        Returns:
+            Score in [0.0, 1.0]: average fuzzy proximity across frames.
+        """
+        if values.empty:
+            return 0.0
+        
+        if hard_cutoff <= 0:
+            # Degenerate case: exact match only
+            return (values == target).astype(float).mean()
+        
+        # Calculate distance from target
+        distance_from_target = np.abs(values - target)
+        
+        # Linear interpolation: 1.0 at target, 0.0 at hard_cutoff
+        scores = np.maximum(0.0, 1.0 - distance_from_target / hard_cutoff)
+        
+        return scores.mean()
+    
+    def Equal(self, values: pd.Series, target: float, tol: float = 0.01) -> float:
+        """Score: fraction of frames where |value - target| <= tol.
+        
+        Args:
+            values: Raw values from computation function.
+            target: Target value.
+            tol: Tolerance around target.
+        
+        Returns:
+            Score in [0.0, 1.0]: fraction of frames within tolerance.
+        """
+        if values.empty:
+            return 0.0
+        return (np.abs(values - target) <= tol).astype(float).mean()
 
 
 ########################################################

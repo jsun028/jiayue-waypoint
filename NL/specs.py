@@ -24,26 +24,65 @@ class DiscreteSlider(BaseModel):
         else:
             return self.medium
 
+class ComputationSpec(BaseModel):
+    """
+    Specifies a computation that produces raw values (e.g., distance, velocity).
+    Computations are then fed into operators that score them.
+    
+    Example: {"type": "distance", "obj": "car1", "other_obj": "car2"}
+    """
+    type: str  # e.g., "distance", "velocity", "heading_diff"
+    obj: str   # Primary object alias
+    other_obj: Optional[str] = None  # For pairwise computations
+    mode: Optional[str] = None  # Optional mode parameter
+    
 class PredicateAtom(BaseModel):
-    # TODO: can we connect this to UDFRegistry dynamically?
-    # see semantic_checker in experiments.py.
-    # type: Literal[
-    #     "velocity_above", "velocity_below", 
-    #     "dist_within_two_obj", "dist_apart_two_obj", 
-    #     "is_approaching", "is_separating", 
-    #     "heading_diff_to"
-    # ]
-    type: str
-    # lhs object alias used within the spec, e.g. "car1"
-    obj: str
-    # optional rhs target (for pairwise predicates)
-    other_obj: Optional[str] = None
-    # numeric params (angles/thresholds/boxes)
+    """
+    Represents a predicate evaluation. Supports two styles:
+    
+    1. Monolithic (legacy): type="velocity_above", obj="car1", value=10.0
+       The UDF computes velocity and compares it in one go.
+    
+    2. Compositional (new): type="GreaterThan", computation={...}, value=10.0
+       The computation produces raw values, operator scores them.
+       Example: {"type": "LessThan", "computation": {"type": "distance", "obj": "car1", "other_obj": "car2"}, "value": 50.0}
+    """
+    type: str  # UDF name (monolithic) or operator name (compositional)
+    
+    # For monolithic style: direct object references
+    obj: Optional[str] = None  # lhs object alias, e.g. "car1"
+    other_obj: Optional[str] = None  # optional rhs target (for pairwise predicates)
+    
+    # For compositional style: nested computation
+    computation: Optional[ComputationSpec] = None
+    
+    # Numeric params (angles/thresholds/boxes)
     value: Optional[float | DiscreteSlider] = None
     tol: Optional[float | DiscreteSlider] = None
     bbox: Optional[Tuple[float, float, float, float]] = None
     label: Optional[str] = None  # e.g. action label
     mode: Optional[str|int] = None
+    
+    @model_validator(mode="after")
+    def validate_style(self) -> "PredicateAtom":
+        """Ensure either obj or computation is provided (but not conflicting)."""
+        has_computation = self.computation is not None
+        has_obj = self.obj is not None
+        
+        # Both styles are valid, but if computation is provided, obj should come from there
+        if has_computation and has_obj:
+            raise ValueError(
+                "When using compositional style (computation field), "
+                "do not provide obj field at PredicateAtom level. "
+                "Instead, provide obj in the ComputationSpec."
+            )
+        
+        if not has_computation and not has_obj:
+            raise ValueError(
+                "PredicateAtom must have either 'obj' (monolithic) or 'computation' (compositional)"
+            )
+        
+        return self
 
 class PredicateExpr(BaseModel):
     # Boolean expression is expressed as a tree (AND/OR/NOT) over atoms.

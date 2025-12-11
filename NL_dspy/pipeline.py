@@ -21,6 +21,7 @@ from NL.specs import (
     AlwaysSpec,
     InterframeSpec,
     TrajectorySpec,
+    ComputationSpec,
 )
 
 
@@ -33,6 +34,27 @@ PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for 
 - For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 - Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
+
+COMPOSITIONAL PREDICATE SYSTEM:
+The system supports two predicate styles:
+
+1. MONOLITHIC (legacy): Single function does computation + comparison
+   Example: {"type": "velocity_above", "obj": "car1", "value": 10.0}
+   
+2. COMPOSITIONAL (preferred): Separate computation and operator
+   Example: {"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 10.0}
+   
+Compositional style is MORE FLEXIBLE and composable:
+- Computation functions return raw values: distance, velocity, heading_diff, rotational_velocity, acceleration
+- Operator functions score the values: LessThan, GreaterThan, InRange, SoftClose, Equal
+
+Example patterns:
+- LessThan(distance(car1, car2), 50.0) → {"type": "LessThan", "computation": {"type": "distance", "obj": "car1", "other_obj": "car2"}, "value": 50.0}
+- GreaterThan(velocity(car1), 5.0) → {"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 5.0}
+- SoftClose(heading_diff(car1, car2), 90.0, 30.0) → {"type": "SoftClose", "computation": {"type": "heading_diff", "obj": "car1", "other_obj": "car2"}, "value": 90.0, "tol": 30.0}
+- InRange(velocity(car1), 2.0, 8.0) → {"type": "InRange", "computation": {"type": "velocity", "obj": "car1"}, "value": 2.0, "tol": 8.0}
+
+USE COMPOSITIONAL STYLE for new predicates unless you need legacy UDF compatibility.
 
 Discrete Sliders for Tunable Values:
 - For numeric parameters like "value" and "tol" (tolerance), you SHOULD use DiscreteSlider objects instead of plain floats.
@@ -418,10 +440,25 @@ class SpecSemanticChecker:
         self._log("Validating predicates against registry …")
         for keyframe in spec.keyframes:
             for atom in collect_atoms(keyframe.where):
-                if atom.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
-                    self._log(f"Auto-registering new predicate '{atom.type}'")
-                    func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.type)
-                    GLOBAL_UDF_REGISTRY.register_udf(atom.type, func)
+                # Check if compositional style
+                if atom.computation is not None:
+                    # Validate computation function
+                    if atom.computation.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
+                        self._log(f"Auto-registering new computation '{atom.computation.type}'")
+                        func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.computation.type)
+                        GLOBAL_UDF_REGISTRY.register_udf(atom.computation.type, func)
+                    
+                    # Validate operator function
+                    if atom.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
+                        self._log(f"Auto-registering new operator '{atom.type}'")
+                        func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.type)
+                        GLOBAL_UDF_REGISTRY.register_udf(atom.type, func)
+                else:
+                    # Monolithic style
+                    if atom.type not in GLOBAL_UDF_REGISTRY.get_all_udfs():
+                        self._log(f"Auto-registering new predicate '{atom.type}'")
+                        func = GLOBAL_UDF_REGISTRY.autogen_udf(atom.type)
+                        GLOBAL_UDF_REGISTRY.register_udf(atom.type, func)
         self._log("Semantic validation complete")
         return spec
 
@@ -548,6 +585,10 @@ class SpecParser:
                     elif field_name == "atom" and field_value.get("type") is not None:
                         self._check_unknown_fields(
                             field_value, PredicateAtom, f"{path}.{field_name}"
+                        )
+                    elif field_name == "computation" and field_value.get("type") is not None:
+                        self._check_unknown_fields(
+                            field_value, ComputationSpec, f"{path}.{field_name}"
                         )
                     elif field_name == "objects":
                         self._check_unknown_fields(
