@@ -29,6 +29,10 @@ class QueryEvaluator:
                 atoms.extend(self._collect_atoms(sub))
         return atoms
     
+    def seconds_to_frames(self, seconds: float) -> int:
+        """Convert seconds to frames based on FPS."""
+        return int(seconds * self.fps)
+    
     def evaluate_keyframe_with_binding(self, keyframe_spec: KeyframeSpec, 
                                      frame_window: Tuple[int, int], 
                                      object_assignment: Dict[str, int]) -> float:
@@ -105,11 +109,20 @@ class QueryEvaluator:
                                            object_assignment: Dict[str, int]) -> float:
         """Evaluate a single predicate atom with object binding.
         
+        Supports two evaluation styles:
+        1. Monolithic: atom.type is a UDF that computes and scores in one go
+        2. Compositional: atom.computation specifies computation, atom.type is an operator
+        
         Returns:
             float: Score in [0.0, 1.0] representing the fraction of frames in the window
                    that satisfy the predicate condition
         """
         try:
+            # Check if this is compositional style
+            if atom.computation is not None:
+                return self._evaluate_compositional_atom(atom, frame_window, object_assignment)
+            
+            # Monolithic style (legacy)
             # Look up UDF in registry
             if atom.type not in self.all_udfs:
                 raise ValueError(f"Unknown UDF: {atom.type}")
@@ -182,6 +195,113 @@ class QueryEvaluator:
         except Exception as e:
             self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
             return 0.0
+    
+    def _evaluate_compositional_atom(self, atom: PredicateAtom,
+                                     frame_window: Tuple[int, int],
+                                     object_assignment: Dict[str, int]) -> float:
+        """Evaluate a compositional predicate (computation + operator).
+        
+        Args:
+            atom: PredicateAtom with atom.computation specified
+            frame_window: Frame range to evaluate
+            object_assignment: Mapping from object aliases to track IDs
+        
+        Returns:
+            float: Score in [0.0, 1.0]
+        """
+        computation = atom.computation
+        
+        # Look up computation function
+        if computation.type not in self.all_udfs:
+            raise ValueError(f"Unknown computation function: {computation.type}")
+        
+        comp_func = self.all_udfs[computation.type]
+        
+        # Resolve object IDs
+        resolved_obj = resolve_object_alias(computation.obj, object_assignment)
+        
+        # Call computation function
+        if computation.other_obj is not None:
+            # Pairwise computation (e.g., distance)
+            resolved_other_obj = resolve_object_alias(computation.other_obj, object_assignment)
+            
+            # Pass mode if provided
+            if computation.mode is not None:
+                raw_values = comp_func(resolved_obj, resolved_other_obj, frame_window, mode=computation.mode)
+            else:
+                raw_values = comp_func(resolved_obj, resolved_other_obj, frame_window)
+        else:
+            # Single-object computation (e.g., velocity)
+            if computation.mode is not None:
+                raw_values = comp_func(resolved_obj, frame_window, mode=computation.mode)
+            else:
+                raw_values = comp_func(resolved_obj, frame_window)
+        
+        # Look up operator function
+        if atom.type not in self.all_udfs:
+            raise ValueError(f"Unknown operator function: {atom.type}")
+        
+        operator_func = self.all_udfs[atom.type]
+        
+        # Apply operator to raw values
+        # Resolve DiscreteSlider values if needed
+        kwargs = {}
+        
+        if atom.value is not None:
+            from NL.specs import DiscreteSlider
+            if isinstance(atom.value, DiscreteSlider):
+                kwargs['threshold'] = atom.value.resolve(self.slider_setting)
+            else:
+                # Operator functions may use different parameter names
+                # Try common ones: threshold, target, min_val
+                kwargs['threshold'] = atom.value
+        
+        if atom.tol is not None:
+            from NL.specs import DiscreteSlider
+            if isinstance(atom.tol, DiscreteSlider):
+                kwargs['tol'] = atom.tol.resolve(self.slider_setting)
+            else:
+                kwargs['tol'] = atom.tol
+        
+        # Handle different operator signatures
+        operator_name = atom.type
+        
+        if operator_name in ['LessThan', 'GreaterThan']:
+            # These take (values, threshold)
+            threshold = kwargs.get('threshold', atom.value)
+            result = operator_func(raw_values, threshold)
+        elif operator_name == 'InRange':
+            # Takes (values, min_val, max_val)
+            # Use value as min, tol as max (or vice versa based on semantics)
+            min_val = kwargs.get('threshold', atom.value)
+            max_val = kwargs.get('tol', atom.tol)
+            if min_val is None or max_val is None:
+                raise ValueError(f"InRange requires both value (min) and tol (max)")
+            result = operator_func(raw_values, min_val, max_val)
+        elif operator_name == 'SoftClose':
+            # Takes (values, target, hard_cutoff)
+            target = kwargs.get('threshold', atom.value)
+            hard_cutoff = kwargs.get('tol', atom.tol)
+            if target is None or hard_cutoff is None:
+                raise ValueError(f"SoftClose requires both value (target) and tol (hard_cutoff)")
+            result = operator_func(raw_values, target, hard_cutoff)
+        elif operator_name == 'Equal':
+            # Takes (values, target, tol)
+            target = kwargs.get('threshold', atom.value)
+            tol = kwargs.get('tol', atom.tol if atom.tol is not None else 0.01)
+            if target is None:
+                raise ValueError(f"Equal requires value (target)")
+            result = operator_func(raw_values, target, tol)
+        else:
+            # Generic fallback: pass all kwargs
+            result = operator_func(raw_values, **kwargs)
+        
+        if isinstance(result, bool):
+            return float(result)
+        elif isinstance(result, (float, int)):
+            return float(result)
+        else:
+            raise ValueError(f"Operator returned unsupported type: {type(result)}")
     
     def evaluate_cross_constraints(self, positions: Dict[str, int], 
                              keyframes_dict: Dict[str, KeyframeSpec],
