@@ -158,9 +158,12 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "heading_diff_agent_to_agent",
-                            "obj": "car1",
-                            "other_obj": "car2",
+                            "type": "SoftClose",
+                            "computation": {
+                                "type": "heading_diff",
+                                "obj": "car1",
+                                "other_obj": "car2"
+                            },
                             "value": {"low": 170.0, "medium": 180.0, "high": 190.0},
                             "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
@@ -168,16 +171,22 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "velocity_above", 
-                            "obj": "car1", 
+                            "type": "GreaterThan",
+                            "computation": {
+                                "type": "velocity",
+                                "obj": "car1"
+                            },
                             "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
                         },
                     },
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "velocity_above", 
-                            "obj": "car2", 
+                            "type": "GreaterThan",
+                            "computation": {
+                                "type": "velocity",
+                                "obj": "car2"
+                            },
                             "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
                         },
                     },
@@ -192,9 +201,12 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "heading_diff_agent_to_agent",
-                            "obj": "car1",
-                            "other_obj": "car2",
+                            "type": "SoftClose",
+                            "computation": {
+                                "type": "heading_diff",
+                                "obj": "car1",
+                                "other_obj": "car2"
+                            },
                             "value": {"low": 85.0, "medium": 90.0, "high": 95.0},
                             "tol": {"low": 10.0, "medium": 15.0, "high": 20.0},
                         },
@@ -202,16 +214,22 @@ FEWSHOT_JSON = {
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "velocity_above", 
-                            "obj": "car1", 
+                            "type": "GreaterThan",
+                            "computation": {
+                                "type": "velocity",
+                                "obj": "car1"
+                            },
                             "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
                         },
                     },
                     {
                         "op": "ATOM",
                         "atom": {
-                            "type": "velocity_above", 
-                            "obj": "car2", 
+                            "type": "GreaterThan",
+                            "computation": {
+                                "type": "velocity",
+                                "obj": "car2"
+                            },
                             "value": {"low": 2.5, "medium": 1.5, "high": 0.5}
                         },
                     },
@@ -227,7 +245,7 @@ FEWSHOT_JSON = {
             "anchor": "k1",
             "target": "k2",
             "time_shift": 3.0,
-            "comparators": [{"type": "heading_diff_agent_to_agent", "value": 90.0, "tol": 15.0}],
+            "comparators": [],
         },
         {
             "kind": "trajectory",
@@ -240,8 +258,9 @@ FEWSHOT_JSON = {
         },
     ],
     "explanation": (
-        "car1 and car2 begin opposed while moving, then car1 slows to set up a right turn, "
-        "and over ~3s completes a right-arc trajectory to align 90° from car2."
+        "car1 and car2 begin opposed while moving (180° heading difference), then car1 slows to set up a right turn, "
+        "and over ~3s completes a right-arc trajectory to align perpendicular (90°) to car2. "
+        "Uses compositional predicates: SoftClose for fuzzy heading match, GreaterThan for velocity thresholds."
     ),
 }
 
@@ -256,17 +275,70 @@ FEWSHOT_BAD_JSON = {
                 "op": "AND",
                 "args": [
                     # BAD: Too many geometric constraints in k1
-                    {"op": "ATOM", "atom": {"type": "heading_diff_agent_to_agent", "obj": "car1", "other_obj": "pedestrian1", "value": 90.0, "tol": 10.0}},
-                    {"op": "ATOM", "atom": {"type": "car_can_see_agent", "obj": "car1", "other_obj": "pedestrian1", "value": 45.0, "tol": 10.0}},
-                    {"op": "ATOM", "atom": {"type": "dist_within_two_obj", "obj": "car1", "other_obj": "pedestrian1", "value": 30.0}},
-                    {"op": "ATOM", "atom": {"type": "velocity_above", "obj": "car1", "value": 1.0}},
+                    {
+                        "op": "ATOM", 
+                        "atom": {
+                            "type": "SoftClose",
+                            "computation": {
+                                "type": "heading_diff",
+                                "obj": "car1",
+                                "other_obj": "pedestrian1"
+                            },
+                            "value": 90.0,
+                            "tol": 10.0
+                        }
+                    },
+                    {
+                        "op": "ATOM", 
+                        "atom": {
+                            "type": "car_can_see_agent", 
+                            "obj": "car1", 
+                            "other_obj": "pedestrian1", 
+                            "value": 45.0, 
+                            "tol": 10.0
+                        }
+                    },
+                    {
+                        "op": "ATOM", 
+                        "atom": {
+                            "type": "LessThan",
+                            "computation": {
+                                "type": "distance",
+                                "obj": "car1",
+                                "other_obj": "pedestrian1"
+                            },
+                            "value": 30.0
+                        }
+                    },
+                    {
+                        "op": "ATOM", 
+                        "atom": {
+                            "type": "GreaterThan",
+                            "computation": {
+                                "type": "velocity",
+                                "obj": "car1"
+                            },
+                            "value": 1.0
+                        }
+                    },
                 ],
             },
         },
         {
             "name": "k2",
             # BAD: Extreme distance threshold (1-3m is near-collision, very rare)
-            "where": {"op": "ATOM", "atom": {"type": "dist_within_two_obj", "obj": "car1", "other_obj": "pedestrian1", "value": {"low": 1.0, "medium": 2.0, "high": 3.0}}},
+            "where": {
+                "op": "ATOM", 
+                "atom": {
+                    "type": "LessThan",
+                    "computation": {
+                        "type": "distance",
+                        "obj": "car1",
+                        "other_obj": "pedestrian1"
+                    },
+                    "value": {"low": 1.0, "medium": 2.0, "high": 3.0}
+                }
+            },
         },
     ],
     "constraints": [],

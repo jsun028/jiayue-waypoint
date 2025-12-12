@@ -658,6 +658,7 @@ def {name}(*args, **kwargs) -> float:
         mode: Optional[str] = None
     ) -> float:
         """Fraction of shared frames where oid2 is visible from oid1's viewpoint.
+        Add NOT to the operators to make this equivalent to "car can't see agent."
 
         Args:
             oid1: Observer track identifier (the one "seeing").
