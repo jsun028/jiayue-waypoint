@@ -155,23 +155,67 @@ def print_spec_details(spec: QuerySpec):
     for i, kf in enumerate(spec.keyframes):
         print(f"Keyframe {i+1} ({kf.name}):")
         print(f"  Predicates: {kf.where.op if kf.where.op else kf.where.args}")
+        
+        def _format_computation(comp: ComputationSpec, indent: str = "      ") -> str:
+            """Format a computation spec nicely."""
+            parts = [f"type={comp.type}", f"obj={comp.obj}"]
+            if comp.other_obj:
+                parts.append(f"other_obj={comp.other_obj}")
+            if comp.mode:
+                parts.append(f"mode={comp.mode}")
+            return f"{indent}computation: {comp.type}({', '.join(parts[1:])})"
+        
+        def _format_value(val) -> str:
+            """Format value (handle DiscreteSlider specially)."""
+            if isinstance(val, dict) and 'low' in val and 'medium' in val and 'high' in val:
+                return f"slider(low={val['low']}, med={val['medium']}, high={val['high']})"
+            return str(val)
+        
         def _format_atom(prefix: str, atom: PredicateAtom) -> None:
-            # Prefer robust dump to capture any extra fields (e.g., distance)
+            # Prefer robust dump to capture any extra fields
             dump = atom.model_dump()
-            # Collect known and optional fields if present
-            details = {
-                "Type": dump.get("type"),
-                "Object": dump.get("obj"),
-                "Other object": dump.get("other_obj"),
-                "Value": dump.get("value"),
-                "Tol": dump.get("tol"),
-                "Distance": dump.get("distance"),
-                "BBox": dump.get("bbox"),
-                "Label": dump.get("label"),
-            }
-            # Build a compact string skipping None values
-            parts = [f"{k}: {v}" for k, v in details.items() if v is not None]
-            print(f"{prefix} Atom details: " + ", ".join(parts))
+            
+            # Check if compositional or monolithic
+            is_compositional = dump.get("computation") is not None
+            
+            if is_compositional:
+                # Compositional style
+                print(f"{prefix} COMPOSITIONAL: {dump['type']}(...)")
+                comp = atom.computation
+                if comp:
+                    print(_format_computation(comp, prefix + "    "))
+                
+                # Show operator parameters
+                params = []
+                if dump.get("value") is not None:
+                    params.append(f"value={_format_value(dump['value'])}")
+                if dump.get("tol") is not None:
+                    params.append(f"tol={_format_value(dump['tol'])}")
+                if dump.get("mode") is not None:
+                    params.append(f"mode={dump['mode']}")
+                if params:
+                    print(f"{prefix}    operator params: {', '.join(params)}")
+            else:
+                # Monolithic style
+                print(f"{prefix} MONOLITHIC: {dump['type']}(...)")
+                details = []
+                if dump.get("obj"):
+                    details.append(f"obj={dump['obj']}")
+                if dump.get("other_obj"):
+                    details.append(f"other_obj={dump['other_obj']}")
+                if dump.get("value") is not None:
+                    details.append(f"value={_format_value(dump['value'])}")
+                if dump.get("tol") is not None:
+                    details.append(f"tol={_format_value(dump['tol'])}")
+                if dump.get("bbox"):
+                    details.append(f"bbox={dump['bbox']}")
+                if dump.get("label"):
+                    details.append(f"label={dump['label']}")
+                if dump.get("mode"):
+                    details.append(f"mode={dump['mode']}")
+                
+                if details:
+                    print(f"{prefix}    params: {', '.join(details)}")
 
         if kf.where.op == "ATOM" and kf.where.atom is not None:
             _format_atom("   ", kf.where.atom)
