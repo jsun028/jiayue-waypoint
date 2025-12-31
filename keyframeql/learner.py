@@ -1,12 +1,11 @@
 import ast
-import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from modAL.models import ActiveLearner
 from sklearn.ensemble import RandomForestClassifier
 from typing import List, Dict, Tuple
-from NL.utils.viz import _generate_visualizations
+from keyframeql.utils.viz import _generate_visualizations
 
 class Reranker:
     """Learn keyframe importance weights via active learning."""

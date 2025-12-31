@@ -7,19 +7,19 @@ from tqdm import tqdm
 # logger.add("compiler.log", rotation="1 week")
 # logger.info("QueryCompiler initialized")
 
-from NL.registry import UDFRegistry
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.specs import (
     KeyframeSpec,
     QuerySpec,
 )
 from typing import Dict, List, Tuple
-from NL.df_utils import (
+from keyframeql.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
     find_common_time_range,
 )
-from NL.evaluator import QueryEvaluator
-from NL.optimizer.selectivity_integration import SelectivityIntegration
+from keyframeql.evaluator import QueryEvaluator
+from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 
 
 class QueryCompiler:

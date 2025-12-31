@@ -7,7 +7,7 @@ the percentage of frames satisfying the predicate condition.
 import pytest
 import numpy as np
 import pandas as pd
-from NL.registry import UDFRegistry
+from keyframeql.registry import UDFRegistry
 
 
 class TestUDFScoring:

@@ -7,9 +7,9 @@ from individual predicates.
 import pytest
 import pandas as pd
 import numpy as np
-from NL.registry import UDFRegistry
-from NL.compiler import QueryCompiler
-from NL.specs import PredicateAtom, PredicateExpr, KeyframeSpec
+from keyframeql.registry import UDFRegistry
+from keyframeql.compiler import QueryCompiler
+from keyframeql.specs import PredicateAtom, PredicateExpr, KeyframeSpec
 from loguru import logger
 
 
@@ -83,7 +83,7 @@ class TestPredicateEvaluation:
         
         # Car1 is track_id=1, which has velocity > 3.0 in 7/10 frames
         assignment = {"car1": 1}
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -106,15 +106,15 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Get individual scores
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get AND score
-        and_score = compiler.evaluate_predicate_expr_with_binding(
+        and_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             and_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -142,15 +142,15 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Get individual scores
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get OR score
-        or_score = compiler.evaluate_predicate_expr_with_binding(
+        or_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             or_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -172,12 +172,12 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Get original score
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get NOT score
-        not_score = compiler.evaluate_predicate_expr_with_binding(
+        not_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             not_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -203,18 +203,18 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Evaluate nested expression
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             or_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get individual scores for verification
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
-        score3 = compiler.evaluate_predicate_expr_with_binding(
+        score3 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr3, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -239,14 +239,14 @@ class TestPredicateEvaluation:
         
         assignment = {"car1": 1, "car2": 2}
         
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
-        and_score = compiler.evaluate_predicate_expr_with_binding(
+        and_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             and_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -306,7 +306,7 @@ class TestKeyframeEvaluation:
         )
         
         assignment = {"car1": 1}
-        score = compiler.evaluate_keyframe_with_binding(
+        score = compiler.evaluator.evaluate_keyframe_with_binding(
             kf, frame_window=(0, 9), object_assignment=assignment
         )
         

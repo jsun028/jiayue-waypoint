@@ -3,8 +3,8 @@
 import sys
 import pandas as pd
 import numpy as np
-from NL.registry import UDFRegistry, udf
-from NL.specs import PredicateAtom
+from keyframeql.registry import UDFRegistry, udf
+from keyframeql.specs import PredicateAtom
 
 def test_decorator_metadata():
     """Test that decorator properly stores parameter mappings."""

@@ -11,8 +11,8 @@ from typing import Iterable, Optional, Any, Union
 
 import dspy
 
-from NL.registry import GLOBAL_UDF_REGISTRY
-from NL.specs import (
+from keyframeql.registry import GLOBAL_UDF_REGISTRY
+from keyframeql.specs import (
     QuerySpec,
     PredicateAtom,
     PredicateExpr,

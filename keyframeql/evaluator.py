@@ -1,8 +1,8 @@
 import pandas as pd 
 from typing import Dict, List, Tuple
-from NL.registry import UDFRegistry
-from NL.df_utils import resolve_object_alias
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.df_utils import resolve_object_alias
+from keyframeql.specs import (
     PredicateAtom,
     PredicateExpr,
     KeyframeSpec,
@@ -193,7 +193,8 @@ class QueryEvaluator:
                 raise ValueError(f"UDF returned unsupported type: {type(result)}")
 
         except Exception as e:
-            self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
+            if self.logger:
+                self.logger.error(f"Error evaluating predicate atom '{atom.type}': {e}")
             return 0.0
     
     def _evaluate_compositional_atom(self, atom: PredicateAtom,
@@ -248,7 +249,7 @@ class QueryEvaluator:
         kwargs = {}
         
         if atom.value is not None:
-            from NL.specs import DiscreteSlider
+            from keyframeql.specs import DiscreteSlider
             if isinstance(atom.value, DiscreteSlider):
                 kwargs['threshold'] = atom.value.resolve(self.slider_setting)
             else:
@@ -257,7 +258,7 @@ class QueryEvaluator:
                 kwargs['threshold'] = atom.value
         
         if atom.tol is not None:
-            from NL.specs import DiscreteSlider
+            from keyframeql.specs import DiscreteSlider
             if isinstance(atom.tol, DiscreteSlider):
                 kwargs['tol'] = atom.tol.resolve(self.slider_setting)
             else:

@@ -5,12 +5,12 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
-from NL.registry import UDFRegistry
-from NL.compiler import QueryCompiler
-from NL.utils.nuscene_traj_viz import plot_bev_snapshot
+from keyframeql.registry import UDFRegistry
+from keyframeql.compiler import QueryCompiler
+from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
 
-from NL.utils.viz import _write_results_json, _generate_visualizations
-from NL.specs import print_spec_details, QuerySpec
+from keyframeql.utils.viz import _write_results_json, _generate_visualizations
+from keyframeql.specs import print_spec_details, QuerySpec
 
 
 logger.add("runs.log", rotation="1 week")

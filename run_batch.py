@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 
-CONDA_PYTHON = "/nethome/jxu680/miniconda3/envs/kql/bin/python"
+#CONDA_PYTHON = "/nethome/jxu680/miniconda3/envs/kql/bin/python"
+CONDA_PYTHON = "/Users/kexinrong/Documents/research/d2i/keyframe-ui/.venv/bin/python"
 MAIN_ENTRY = Path(__file__).parent / "main.py"
 
 

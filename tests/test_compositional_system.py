@@ -10,9 +10,9 @@ This enables flexible composition like:
 import pytest
 import pandas as pd
 import numpy as np
-from NL.registry import UDFRegistry
-from NL.evaluator import QueryEvaluator
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.evaluator import QueryEvaluator
+from keyframeql.specs import (
     PredicateAtom,
     PredicateExpr,
     KeyframeSpec,

@@ -12,7 +12,7 @@ import argparse
 import json
 from pathlib import Path
 
-from NL.registry import GLOBAL_UDF_REGISTRY
+from keyframeql.registry import GLOBAL_UDF_REGISTRY
 from NL_dspy.pipeline import SpecGenerator, _format_available_udfs_for_prompt
 from NL_dspy.stats_prompt import format_stats_for_prompt
 
@@ -44,7 +44,7 @@ def main() -> None:
         with open(args.stats_json, "r", encoding="utf-8") as fh:
             metadata = json.load(fh)
     elif args.stats_csv:
-        from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
+        from keyframeql.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
 
         builder = KeyframeQLStatisticsBuilder(
             args.stats_csv,

@@ -8,9 +8,9 @@ import pytest
 import pandas as pd
 import numpy as np
 from loguru import logger
-from NL.registry import UDFRegistry
-from NL.compiler import QueryCompiler
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.compiler import QueryCompiler
+from keyframeql.specs import (
     QuerySpec, ObjectsSpec, KeyframeSpec, AlwaysSpec,
     PredicateAtom, PredicateExpr
 )
@@ -317,7 +317,7 @@ class TestScoreComparison:
         )
         
         assignment = {"car1": 1}
-        score = compiler.evaluate_keyframe_with_binding(
+        score = compiler.evaluator.evaluate_keyframe_with_binding(
             kf, frame_window=(0, 19), object_assignment=assignment
         )
         
