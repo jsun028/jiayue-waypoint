@@ -178,7 +178,7 @@ class TestUDFScoring:
         # First 6 transitions have ~2.0 deg/frame (pass)
         # Last 4 transitions have ~0.05 deg/frame (fail)
         # Expected: 6/10 = 0.6
-        score = registry.car_turning(
+        score = registry.turning(
             object_id=1,
             min_rot_vel=0.1,
             frame_window=(0, 10),
@@ -222,7 +222,7 @@ class TestUDFScoring:
         df = pd.DataFrame(frames)
         registry = UDFRegistry(df)
         
-        score = registry.is_approaching(
+        score = registry.approaching_each_other(
             oid1=1,
             oid2=2,
             frame_window=(0, 9)

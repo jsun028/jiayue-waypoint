@@ -112,12 +112,14 @@ def udf(**explicit_mappings):
 
 class UDFRegistry:
     _BASE_FUNCTION_NAMES = (
-        'is_approaching',
-        'is_separating',
-        'car_turning',
-        'car_accelerating',
-        'car_can_see_agent',
-        'car_in_relative_direction',
+        # Involving two-objects: Use "X_to_Y" or "X_from_Y" pattern
+        'approaching_each_other',  # or 'mutually_approaching'
+        'separating_from_each_other',
+        'visible_to_observer',
+        'in_direction_relative_to',
+        # Involving a single object
+        'turning',
+        'accelerating',
     )
     
     # Compositional system: computation functions (return raw values per frame)
@@ -128,8 +130,7 @@ class UDFRegistry:
         'rotational_velocity',
         'acceleration',
         'closing_speed',
-        'visibility_score',
-        'relative_position_local'
+        'relative_position'
     )
     
     # Compositional system: operator functions (score computed values)
@@ -226,7 +227,7 @@ def {name}(*args, **kwargs) -> float:
     
     # UDF Implementations   
     @udf()
-    def is_approaching(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
+    def approaching_each_other(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
         """Fraction of shared frames where objects are moving closer together.
         
         Returns:
@@ -237,7 +238,7 @@ def {name}(*args, **kwargs) -> float:
         
     
     @udf()
-    def is_separating(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
+    def separating_from_each_other(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
         """Fraction of shared frames where objects are moving apart.
         
         Returns:
@@ -247,7 +248,7 @@ def {name}(*args, **kwargs) -> float:
         return self.GreaterThan(speed_values, threshold=0.0)
 
     @udf(min_rot_vel='value')
-    def car_turning(
+    def turning(
         self, 
         object_id: int, 
         min_rot_vel: float, 
@@ -280,7 +281,7 @@ def {name}(*args, **kwargs) -> float:
             return self.GreaterThan(abs_rot_vel, threshold=min_rot_vel)
     
     @udf(min_accel='value')
-    def car_accelerating(
+    def accelerating(
         self, 
         object_id: int, 
         min_accel: float, 
@@ -310,9 +311,9 @@ def {name}(*args, **kwargs) -> float:
             # Either direction - use absolute value
             abs_accel = accel_values.abs()
             return self.GreaterThan(abs_accel, threshold=min_accel)
-    
+
     @udf(cone_angle='value', max_distance='tol')
-    def car_can_see_agent(
+    def visible_to_observer(
         self, 
         oid1: int, 
         oid2: int, 
@@ -322,23 +323,118 @@ def {name}(*args, **kwargs) -> float:
         mode: Optional[str] = None
     ) -> float:
         """Fraction of shared frames where oid2 is visible from oid1's viewpoint.
-        
-        Args:
-            mode: Occlusion handling:
-                - "with_occlusion": Check for blocking objects
-                - None or "without_occlusion": Simple geometric visibility
-        """
-        check_occlusion = (mode == "with_occlusion")
-        visibility_values = self.visibility_score(
-            oid1, oid2, cone_angle, max_distance, frame_window, check_occlusion
-        )
-        
-        # Visibility is already binary (1.0 or 0.0), so we just take the mean
-        # Or use GreaterThan with threshold 0.5 to count visible frames
-        return self.GreaterThan(visibility_values, threshold=0.5)
+        Add NOT to the operators to make this equivalent to "car can't see agent."
 
+        Args:
+            oid1: Observer track identifier (the one "seeing").
+            oid2: Target track identifier (the one being "seen").
+            cone_angle: Field of view angle in degrees (total cone angle).
+            max_distance: Maximum viewing distance.
+            frame_window: Inclusive `(start, end)` frame indices.
+            mode: Occlusion handling:
+                  - "with_occlusion": Check for blocking objects (more complex)
+                  - None or "without_occlusion": Simple geometric visibility
+
+        Returns:
+            Mean indicator that oid2 is visible from oid1; 0.0 without overlap.
+
+        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `agent_yaw`.
+        """
+        start_frame, end_frame = frame_window
+        
+        # Filter data for both objects in the frame window
+        df_filtered = self.df[
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        # Get observer and target data
+        observer = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
+        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
+        
+        # Get positions for common frames
+        common = observer.join(target, how='inner', rsuffix='_target')
+        
+        if common.empty:
+            return 0.0
+        
+        # Calculate relative position
+        dx = common['x1_target'] - common['x1']
+        dy = common['y1_target'] - common['y1']
+        
+        # Calculate distance
+        distances = np.sqrt(dx**2 + dy**2)
+        
+        # Calculate angle to target relative to observer's heading
+        angle_to_target = np.arctan2(dy, dx)
+        observer_heading = common['agent_yaw']
+        
+        # Relative angle (how far off-center the target is from the observer's heading)
+        relative_angle = angle_to_target - observer_heading
+        
+        # Normalize to [-pi, pi]
+        relative_angle = np.arctan2(np.sin(relative_angle), np.cos(relative_angle))
+        relative_angle_deg = np.degrees(np.abs(relative_angle))
+        
+        # Check if within viewing cone and distance
+        half_cone = cone_angle / 2.0
+        within_cone = relative_angle_deg <= half_cone
+        within_distance = distances <= max_distance
+        
+        visible = within_cone & within_distance
+        
+        # Handle occlusion if requested
+        if mode == "with_occlusion":
+            # For each frame, check if any other object occludes the view
+            for frame_idx in common.index:
+                if not visible[frame_idx]:
+                    continue  # Already not visible
+                
+                # Get all objects in this frame (excluding observer and target)
+                frame_objects = df_filtered[
+                    (df_filtered['frame_index'] == frame_idx) & 
+                    (df_filtered['track_id'] != oid1) & 
+                    (df_filtered['track_id'] != oid2)
+                ]
+                
+                if frame_objects.empty:
+                    continue
+                
+                obs_pos = np.array([common.loc[frame_idx, 'x1'], common.loc[frame_idx, 'y1']])
+                tgt_pos = np.array([common.loc[frame_idx, 'x1_target'], common.loc[frame_idx, 'y1_target']])
+                
+                # Check each potential occluder
+                for _, occluder in frame_objects.iterrows():
+                    occ_pos = np.array([occluder['x1'], occluder['y1']])
+                    
+                    # Simple occlusion test: is occluder on the line of sight?
+                    # Distance from occluder to line segment observer->target
+                    line_vec = tgt_pos - obs_pos
+                    line_len = np.linalg.norm(line_vec)
+                    
+                    if line_len < 1e-6:
+                        continue
+                    
+                    line_dir = line_vec / line_len
+                    to_occ = occ_pos - obs_pos
+                    
+                    # Project occluder onto line
+                    projection = np.dot(to_occ, line_dir)
+                    
+                    # Only occlude if occluder is between observer and target
+                    if 0 < projection < line_len:
+                        # Distance from occluder to line
+                        perp_dist = np.linalg.norm(to_occ - projection * line_dir)
+                        
+                        # Assume object size threshold for occlusion (e.g., 2 meters)
+                        if perp_dist < 2.0:
+                            visible[frame_idx] = False
+                            break
+        
+        return visible.astype(float).mean()
+    
     @udf()
-    def car_in_relative_direction(
+    def in_direction_relative_to(
         self, 
         oid1: int, 
         oid2: int, 
@@ -370,8 +466,8 @@ def {name}(*args, **kwargs) -> float:
         if mode is None:
             raise ValueError("mode parameter is required for car_in_relative_direction")
         
-        # Get relative position in local frame
-        rel_pos = self.relative_position_local(oid1, oid2, frame_window)
+        # Get relative position in oid1's local frame
+        rel_pos = self.relative_position(oid1, oid2, frame_window)
         
         if rel_pos.empty:
             return 0.0
@@ -469,7 +565,8 @@ def {name}(*args, **kwargs) -> float:
     
     def heading_diff(self, oid1: int, oid2: int, frame_window: Tuple[int, int], 
                      mode: Optional[str] = None) -> pd.Series:
-        """Compute heading difference between two objects for each frame.
+        """Compute heading difference (orientation, which way facing)  
+           between two objects for each frame.
         
         Args:
             oid1: First track identifier (reference).
@@ -612,97 +709,9 @@ def {name}(*args, **kwargs) -> float:
     
         return pd.Series(closing_speed, index=common.index)
 
-    
-    def visibility_score(self, oid1: int, oid2: int, cone_angle: float, 
-                    max_distance: float, frame_window: Tuple[int, int],
-                    check_occlusion: bool = False) -> pd.Series:
-        """Compute whether oid2 is visible to oid1 (1.0 = visible, 0.0 = not visible) for each frame.
-        
-        Args:
-            oid1: Observer track identifier.
-            oid2: Target track identifier.
-            cone_angle: Field of view angle in degrees (total cone angle).
-            max_distance: Maximum viewing distance.
-            frame_window: Inclusive (start, end) frame indices.
-            check_occlusion: If True, check for blocking objects.
-        
-        Returns:
-            pd.Series indexed by frame_index containing binary visibility (1.0 or 0.0).
-        """
-        start_frame, end_frame = frame_window
-        
-        df_filtered = self.df[
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-        
-        observer = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
-        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
-        common = observer.join(target, how='inner', rsuffix='_target')
-        
-        if common.empty:
-            return pd.Series(dtype=float)
-        
-        # Calculate relative position
-        dx = common['x1_target'] - common['x1']
-        dy = common['y1_target'] - common['y1']
-        distances = np.sqrt(dx**2 + dy**2)
-        
-        # Calculate angle to target
-        angle_to_target = np.arctan2(dy, dx)
-        observer_heading = common['agent_yaw']
-        relative_angle = angle_to_target - observer_heading
-        relative_angle = np.arctan2(np.sin(relative_angle), np.cos(relative_angle))
-        relative_angle_deg = np.degrees(np.abs(relative_angle))
-        
-        # Check visibility
-        half_cone = cone_angle / 2.0
-        within_cone = relative_angle_deg <= half_cone
-        within_distance = distances <= max_distance
-        visible = (within_cone & within_distance).astype(float)
-        
-        # Handle occlusion if requested
-        if check_occlusion:
-            for frame_idx in common.index:
-                if visible[frame_idx] == 0.0:
-                    continue
-                
-                frame_objects = df_filtered[
-                    (df_filtered['frame_index'] == frame_idx) & 
-                    (df_filtered['track_id'] != oid1) & 
-                    (df_filtered['track_id'] != oid2)
-                ]
-                
-                if frame_objects.empty:
-                    continue
-                
-                obs_pos = np.array([common.loc[frame_idx, 'x1'], common.loc[frame_idx, 'y1']])
-                tgt_pos = np.array([common.loc[frame_idx, 'x1_target'], common.loc[frame_idx, 'y1_target']])
-                
-                for _, occluder in frame_objects.iterrows():
-                    occ_pos = np.array([occluder['x1'], occluder['y1']])
-                    line_vec = tgt_pos - obs_pos
-                    line_len = np.linalg.norm(line_vec)
-                    
-                    if line_len < 1e-6:
-                        continue
-                    
-                    line_dir = line_vec / line_len
-                    to_occ = occ_pos - obs_pos
-                    projection = np.dot(to_occ, line_dir)
-                    
-                    if 0 < projection < line_len:
-                        perp_dist = np.linalg.norm(to_occ - projection * line_dir)
-                        if perp_dist < 2.0:
-                            visible[frame_idx] = 0.0
-                            break
-        
-        return pd.Series(visible, index=common.index)
-
-
-    def relative_position_local(self, oid1: int, oid2: int, 
+    def relative_position(self, oid1: int, oid2: int, 
                            frame_window: Tuple[int, int]) -> pd.DataFrame:
-        """Compute relative position of oid2 in oid1's local coordinate frame.
+        """Compute relative position (location) of oid2 in oid1's local coordinate frame.
         
         Transforms oid2's position into oid1's reference frame where:
         - forward: along oid1's heading direction (positive = ahead)
