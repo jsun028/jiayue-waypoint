@@ -11,7 +11,7 @@ from loguru import logger
 from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
 from keyframeql.specs import (
-    QuerySpec, ObjectsSpec, KeyframeSpec, AlwaysSpec,
+    QuerySpec, ObjectsSpec, KeyframeSpec, AlwaysSpec, ComputationSpec,
     PredicateAtom, PredicateExpr
 )
 
@@ -95,8 +95,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -150,16 +150,16 @@ class TestEndToEndPipeline:
                             PredicateExpr(
                                 op="ATOM",
                                 atom=PredicateAtom(
-                                    type="velocity_above",
-                                    obj="car1",
+                                    type="GreaterThan",
+                                    computation=ComputationSpec(type="velocity", obj="car1"),
                                     value=2.0
                                 )
                             ),
                             PredicateExpr(
                                 op="ATOM",
                                 atom=PredicateAtom(
-                                    type="velocity_above",
-                                    obj="car2",
+                                    type="GreaterThan",
+                                    computation=ComputationSpec(type="velocity", obj="car2"),
                                     value=2.0
                                 )
                             )
@@ -205,8 +205,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -251,8 +251,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -309,8 +309,8 @@ class TestScoreComparison:
             where=PredicateExpr(
                 op="ATOM",
                 atom=PredicateAtom(
-                    type="velocity_above",
-                    obj="car1",
+                    type="GreaterThan",
+                    computation=ComputationSpec(type="velocity", obj="car1"),
                     value=4.0
                 )
             )

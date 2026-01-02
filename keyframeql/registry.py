@@ -112,16 +112,10 @@ def udf(**explicit_mappings):
 
 class UDFRegistry:
     _BASE_FUNCTION_NAMES = (
-        'dist_within_two_obj',
-        'dist_apart_two_obj',
-        'velocity_above',
-        'velocity_below',
         'is_approaching',
         'is_separating',
-        'heading_diff_agent_to_agent',
-        'heading_diff_agent_to_ego',
         'car_turning',
-        'car_acceleration',
+        'car_accelerating',
         'car_can_see_agent',
         'car_in_relative_direction',
     )
@@ -133,6 +127,9 @@ class UDFRegistry:
         'heading_diff',
         'rotational_velocity',
         'acceleration',
+        'closing_speed',
+        'visibility_score',
+        'relative_position_local'
     )
     
     # Compositional system: operator functions (score computed values)
@@ -227,302 +224,27 @@ def {name}(*args, **kwargs) -> float:
 
         return always_true_predicate
     
-    # UDF Implementations
-    @udf(velocity='value')
-    def velocity_above(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
-        """Fraction of frames where speed exceeds `velocity`.
-
-        Args:
-            object_id: Track identifier (`track_id`).
-            velocity: Minimum speed threshold.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that speed > `velocity`; 0.0 if no frames.
-
-        Needs columns `track_id`, `frame_index`, `vel_x`, `vel_y`.
-        """
-        start_frame, end_frame = frame_window
-        
-        # Filter data for the object in the frame window
-        object_data = self.df[
-            (self.df['track_id'] == object_id) & 
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-        
-        if object_data.empty:
-            return 0.0
-        
-        # Calculate velocity magnitude from vel_x and vel_y
-        velocity_magnitudes = np.sqrt(object_data['vel_x']**2 + object_data['vel_y']**2)
-        
-        # Convert boolean to binary and return average
-        above_threshold = (velocity_magnitudes > velocity).astype(int)
-        return above_threshold.mean()
-    
-    @udf(velocity='value')
-    def velocity_below(self, object_id: str, velocity: float, frame_window: Tuple[int, int]) -> float:
-        """Fraction of frames where speed ≤ `velocity`.
-
-        Args:
-            object_id: Track identifier (`track_id`).
-            velocity: Maximum speed threshold.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that speed ≤ `velocity`; 0.0 if no frames.
-
-        Needs columns `track_id`, `frame_index`, `vel_x`, `vel_y`.
-        """
-        start_frame, end_frame = frame_window
-        
-        # Filter data for the object in the frame window
-        object_data = self.df[
-            (self.df['track_id'] == object_id) & 
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-        
-        if object_data.empty:
-            return 0.0
-        
-        # Calculate velocity magnitude from vel_x and vel_y
-        velocity_magnitudes = np.sqrt(object_data['vel_x']**2 + object_data['vel_y']**2)
-        
-        # Convert boolean to binary and return average
-        below_threshold = (velocity_magnitudes <= velocity).astype(int)
-        return below_threshold.mean()
-
-    @udf(distance='value')
-    def dist_within_two_obj(self, oid1: int, oid2: int, distance: float, frame_window: Tuple[int, int]) -> pd.Series:
-        """Fraction of shared frames where distance ≤ `distance`.
-
-        Args:
-            oid1: First track identifier.
-            oid2: Second track identifier.
-            distance: Maximum separation allowed.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that objects are within `distance`; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`.
-        """
-        start_frame, end_frame = frame_window
-        
-        # Filter data for both objects in the frame window
-        df_filtered = self.df[
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-
-        data1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1']]
-        data2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
-        
-        # Get positions for common frames
-        common_data = data1.join(data2, how='inner', lsuffix='_1', rsuffix='_2')
-    
-        
-        if common_data.empty:
-            return 0.0
-    
-        # Calculate distances vectorized
-        distances = np.sqrt(
-            (common_data['x1_1'] - common_data['x1_2'])**2 + 
-            (common_data['y1_1'] - common_data['y1_2'])**2
-        )
-        
-        # Convert boolean to binary (0/1) and return average
-        within_distance = (distances <= distance).astype(float)
-        return within_distance.mean()
-
-    @udf(min_dist='value')
-    def dist_apart_two_obj(self, oid1: int, oid2: int, min_dist: float, frame_window: Tuple[int, int]) -> float:
-        """Fraction of shared frames where distance ≥ `min_dist`.
-
-        Args:
-            oid1: First track identifier.
-            oid2: Second track identifier.
-            min_dist: Minimum separation required.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that distance ≥ `min_dist`; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`.
-        """
-        start_frame, end_frame = frame_window
-        
-        # Filter data for both objects in the frame window
-        df_filtered = self.df[
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-
-        data1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1']]
-        data2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
-        
-        # Get positions for common frames
-        common_data = data1.join(data2, how='inner', lsuffix='_1', rsuffix='_2')
-    
-        
-        if common_data.empty:
-            return 0.0
-    
-        # Calculate distances vectorized
-        distances = np.sqrt(
-            (common_data['x1_1'] - common_data['x1_2'])**2 + 
-            (common_data['y1_1'] - common_data['y1_2'])**2
-        )
-
-        # Convert boolean to binary (0/1) and return average
-        apart_distance = (distances >= min_dist).astype(float)
-        return apart_distance.mean()
-
-    
+    # UDF Implementations   
     @udf()
     def is_approaching(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
-        """Fraction of shared frames where relative motion closes distance.
-
-        Args:
-            oid1: Reference track identifier.
-            oid2: Moving track identifier.
-            frame_window: Inclusive `(start, end)` frame indices.
-
+        """Fraction of shared frames where objects are moving closer together.
+        
         Returns:
-            Mean indicator that dot(rel_pos, rel_vel) < 0; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `vel_x`, `vel_y`.
+            Score in [0.0, 1.0]: fraction of frames where objects are approaching.
         """
-        start, end = frame_window
-        df_filtered = self.df[self.df['frame_index'].between(start, end)]
-
-        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1','y1','vel_x','vel_y']]
-        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1','y1','vel_x','vel_y']]
-        common = d1.join(d2, lsuffix='_1', rsuffix='_2')
-
-        if common.empty:
-            return 0.0
-
-        rel_pos = common[['x1_2','y1_2']].values - common[['x1_1','y1_1']].values
-        rel_vel = common[['vel_x_2','vel_y_2']].values - common[['vel_x_1','vel_y_1']].values
-        dot = np.einsum('ij,ij->i', rel_pos, rel_vel)
-
-        return (dot < 0).astype(float).mean()
-
+        speed_values = self.closing_speed(oid1, oid2, frame_window)
+        return self.LessThan(speed_values, threshold=0.0)
+        
+    
     @udf()
     def is_separating(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> float:
-        """Fraction of shared frames where relative motion increases distance.
-
-        Args:
-            oid1: Reference track identifier.
-            oid2: Moving track identifier.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that dot(rel_pos, rel_vel) > 0; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `vel_x`, `vel_y`.
-        """
-        start, end = frame_window
-        df_filtered = self.df[self.df['frame_index'].between(start, end)]
-
-        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1','y1','vel_x','vel_y']]
-        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1','y1','vel_x','vel_y']]
-        common = d1.join(d2, lsuffix='_1', rsuffix='_2')
-
-        if common.empty:
-            return 0.0
-
-        rel_pos = common[['x1_2','y1_2']].values - common[['x1_1','y1_1']].values
-        rel_vel = common[['vel_x_2','vel_y_2']].values - common[['vel_x_1','vel_y_1']].values
-        dot = np.einsum('ij,ij->i', rel_pos, rel_vel)
-
-        return (dot > 0).astype(float).mean()
-
-    @udf(expected_deg='value', tol_deg='tol')
-    def heading_diff_agent_to_agent(
-        self, 
-        oid1: int, 
-        oid2: int, 
-        expected_deg: float, 
-        tol_deg: float, 
-        frame_window: Tuple[int, int]
-    ) -> float:
-        """Fraction of shared frames where heading gap between two agents ≈ `expected_deg`.
-
-        Args:
-            oid1: Reference agent track identifier.
-            oid2: Comparison agent track identifier.
-            expected_deg: Target absolute heading difference in degrees.
-            tol_deg: Allowed tolerance around the target in degrees.
-            frame_window: Inclusive `(start, end)` frame indices.
-
-        Returns:
-            Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `agent_yaw`.
-        """
-        start, end = frame_window
-        df_filtered = self.df[self.df['frame_index'].between(start, end)]
-
-        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')['agent_yaw']
-        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')['agent_yaw']
+        """Fraction of shared frames where objects are moving apart.
         
-        # Join on common frames
-        common = pd.DataFrame({'yaw1': d1, 'yaw2': d2}).dropna()
-
-        if common.empty:
-            return 0.0
-
-        # Calculate absolute heading difference
-        diff = np.degrees(np.abs(common['yaw2'] - common['yaw1'])) % 360
-        diff = np.where(diff > 180, 360 - diff, diff)
-        
-        return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
-
-    @udf()
-    def heading_diff_agent_to_ego(
-        self, 
-        oid: int, 
-        expected_deg: float, 
-        tol_deg: float, 
-        frame_window: Tuple[int, int]
-    ) -> float:
-        """Fraction of frames where heading gap between agent and ego ≈ `expected_deg`.
-
-        Args:
-            oid: Agent track identifier.
-            expected_deg: Target absolute heading difference in degrees.
-            tol_deg: Allowed tolerance around the target in degrees.
-            frame_window: Inclusive `(start, end)` frame indices.
-
         Returns:
-            Mean indicator that |Δheading − expected_deg| ≤ tol_deg; 0.0 if agent not present.
-
-        Needs columns `track_id`, `frame_index`, `agent_yaw`. Ego is taken from rows with class_name=='ego' or track_id==0.
+            Score in [0.0, 1.0]: fraction of frames where objects are separating.
         """
-        start, end = frame_window
-        df_filtered = self.df[self.df['frame_index'].between(start, end)]
-
-        # Agent samples
-        agent_series = df_filtered[df_filtered['track_id'] == oid].set_index('frame_index')['agent_yaw']
-        if agent_series.empty:
-            return 0.0
-
-        # Ego samples: prefer track_id==0, fallback to class_name=='ego'
-        ego_mask = (df_filtered['track_id'] == 0) | (df_filtered.get('class_name', pd.Series(index=df_filtered.index, dtype=object)) == 'ego')
-        ego_series = df_filtered[ego_mask].drop_duplicates(subset=['frame_index']).set_index('frame_index')['agent_yaw']
-
-        # Align on common frames
-        common = pd.DataFrame({'agent_yaw': agent_series}).join(ego_series.rename('ego_yaw'), how='inner')
-        if common.empty:
-            return 0.0
-
-        diff = np.degrees(np.abs(common['ego_yaw'] - common['agent_yaw'])) % 360
-        diff = np.where(diff > 180, 360 - diff, diff)
-        return (np.abs(diff - expected_deg) <= tol_deg).astype(float).mean()
+        speed_values = self.closing_speed(oid1, oid2, frame_window)
+        return self.GreaterThan(speed_values, threshold=0.0)
 
     @udf(min_rot_vel='value')
     def car_turning(
@@ -533,62 +255,32 @@ def {name}(*args, **kwargs) -> float:
         mode: Optional[str] = None
     ) -> float:
         """Fraction of frames where rotational velocity exceeds threshold.
-
+        
         Args:
-            object_id: Track identifier.
-            min_rot_vel: Minimum rotational velocity threshold (degrees/frame).
-            frame_window: Inclusive `(start, end)` frame indices.
             mode: Optional direction filter:
-                  - "left" or "counterclockwise": positive rotation only
-                  - "right" or "clockwise": negative rotation only  
-                  - None: either direction (absolute value)
-
-        Returns:
-            Mean indicator that rotational velocity meets criteria; 0.0 if no frames.
-
-        Needs columns `track_id`, `frame_index`, `agent_yaw`.
+                - "left" or "counterclockwise": positive rotation only
+                - "right" or "clockwise": negative rotation only  
+                - None: either direction (absolute value)
         """
-        start_frame, end_frame = frame_window
+        rot_vel_values = self.rotational_velocity(object_id, frame_window)
         
-        # Filter data for the object in the frame window
-        object_data = self.df[
-            (self.df['track_id'] == object_id) & 
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ].sort_values('frame_index')
-        
-        if len(object_data) < 2:
+        if rot_vel_values.empty:
             return 0.0
-        
-        # Calculate rotational velocity (change in yaw per frame)
-        yaw_values = object_data['agent_yaw'].values
-        frame_indices = object_data['frame_index'].values
-        
-        # Compute frame-to-frame yaw differences
-        yaw_diff = np.diff(yaw_values)
-        frame_diff = np.diff(frame_indices)
-        
-        # Normalize by frame gaps (in case frames are not consecutive)
-        rot_vel = np.degrees(yaw_diff) / np.maximum(frame_diff, 1)
-        
-        # Handle angle wrapping (-180 to 180)
-        rot_vel = (rot_vel + 180) % 360 - 180
         
         # Apply mode filtering
         if mode in ["left", "counterclockwise"]:
             # Positive rotation (left turn)
-            condition = rot_vel > min_rot_vel
+            return self.GreaterThan(rot_vel_values, threshold=min_rot_vel)
         elif mode in ["right", "clockwise"]:
-            # Negative rotation (right turn)
-            condition = rot_vel < -min_rot_vel
+            # Negative rotation (right turn) - check if value < -min_rot_vel
+            return self.LessThan(rot_vel_values, threshold=-min_rot_vel)
         else:
-            # Either direction (absolute value)
-            condition = np.abs(rot_vel) > min_rot_vel
-        
-        return condition.astype(float).mean()
-
+            # Either direction - use absolute value
+            abs_rot_vel = rot_vel_values.abs()
+            return self.GreaterThan(abs_rot_vel, threshold=min_rot_vel)
+    
     @udf(min_accel='value')
-    def car_acceleration(
+    def car_accelerating(
         self, 
         object_id: int, 
         min_accel: float, 
@@ -596,57 +288,29 @@ def {name}(*args, **kwargs) -> float:
         mode: Optional[str] = None
     ) -> float:
         """Fraction of frames where acceleration exceeds threshold.
-
+        
         Args:
-            object_id: Track identifier.
-            min_accel: Minimum acceleration threshold (m/s² or units/frame²).
-            frame_window: Inclusive `(start, end)` frame indices.
             mode: Optional direction filter:
-                  - "speeding_up": positive acceleration only
-                  - "slowing_down": negative acceleration (deceleration) only
-                  - None: either direction (absolute value)
-
-        Returns:
-            Mean indicator that acceleration meets criteria; 0.0 if no frames.
-
-        Needs columns `track_id`, `frame_index`, `vel_x`, `vel_y`.
+                - "speeding_up": positive acceleration only
+                - "slowing_down": negative acceleration only
+                - None: either direction (absolute value)
         """
-        start_frame, end_frame = frame_window
+        accel_values = self.acceleration(object_id, frame_window)
         
-        # Filter data for the object in the frame window
-        object_data = self.df[
-            (self.df['track_id'] == object_id) & 
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ].sort_values('frame_index')
-        
-        if len(object_data) < 2:
+        if accel_values.empty:
             return 0.0
-        
-        # Calculate velocity magnitudes
-        velocity_magnitudes = np.sqrt(
-            object_data['vel_x'].values**2 + object_data['vel_y'].values**2
-        )
-        frame_indices = object_data['frame_index'].values
-        
-        # Compute frame-to-frame velocity changes (acceleration)
-        vel_diff = np.diff(velocity_magnitudes)
-        frame_diff = np.diff(frame_indices)
-        
-        # Normalize by frame gaps
-        acceleration = vel_diff / np.maximum(frame_diff, 1)
         
         # Apply mode filtering
         if mode == "speeding_up":
-            condition = acceleration > min_accel
+            return self.GreaterThan(accel_values, threshold=min_accel)
         elif mode == "slowing_down":
-            condition = acceleration < -min_accel
+            # Deceleration - check if value < -min_accel
+            return self.LessThan(accel_values, threshold=-min_accel)
         else:
-            # Either direction (absolute value)
-            condition = np.abs(acceleration) > min_accel
-        
-        return condition.astype(float).mean()
-
+            # Either direction - use absolute value
+            abs_accel = accel_values.abs()
+            return self.GreaterThan(abs_accel, threshold=min_accel)
+    
     @udf(cone_angle='value', max_distance='tol')
     def car_can_see_agent(
         self, 
@@ -658,115 +322,20 @@ def {name}(*args, **kwargs) -> float:
         mode: Optional[str] = None
     ) -> float:
         """Fraction of shared frames where oid2 is visible from oid1's viewpoint.
-        Add NOT to the operators to make this equivalent to "car can't see agent."
-
+        
         Args:
-            oid1: Observer track identifier (the one "seeing").
-            oid2: Target track identifier (the one being "seen").
-            cone_angle: Field of view angle in degrees (total cone angle).
-            max_distance: Maximum viewing distance.
-            frame_window: Inclusive `(start, end)` frame indices.
             mode: Occlusion handling:
-                  - "with_occlusion": Check for blocking objects (more complex)
-                  - None or "without_occlusion": Simple geometric visibility
-
-        Returns:
-            Mean indicator that oid2 is visible from oid1; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `agent_yaw`.
+                - "with_occlusion": Check for blocking objects
+                - None or "without_occlusion": Simple geometric visibility
         """
-        start_frame, end_frame = frame_window
+        check_occlusion = (mode == "with_occlusion")
+        visibility_values = self.visibility_score(
+            oid1, oid2, cone_angle, max_distance, frame_window, check_occlusion
+        )
         
-        # Filter data for both objects in the frame window
-        df_filtered = self.df[
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-        
-        # Get observer and target data
-        observer = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
-        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
-        
-        # Get positions for common frames
-        common = observer.join(target, how='inner', rsuffix='_target')
-        
-        if common.empty:
-            return 0.0
-        
-        # Calculate relative position
-        dx = common['x1_target'] - common['x1']
-        dy = common['y1_target'] - common['y1']
-        
-        # Calculate distance
-        distances = np.sqrt(dx**2 + dy**2)
-        
-        # Calculate angle to target relative to observer's heading
-        angle_to_target = np.arctan2(dy, dx)
-        observer_heading = common['agent_yaw']
-        
-        # Relative angle (how far off-center the target is from the observer's heading)
-        relative_angle = angle_to_target - observer_heading
-        
-        # Normalize to [-pi, pi]
-        relative_angle = np.arctan2(np.sin(relative_angle), np.cos(relative_angle))
-        relative_angle_deg = np.degrees(np.abs(relative_angle))
-        
-        # Check if within viewing cone and distance
-        half_cone = cone_angle / 2.0
-        within_cone = relative_angle_deg <= half_cone
-        within_distance = distances <= max_distance
-        
-        visible = within_cone & within_distance
-        
-        # Handle occlusion if requested
-        if mode == "with_occlusion":
-            # For each frame, check if any other object occludes the view
-            for frame_idx in common.index:
-                if not visible[frame_idx]:
-                    continue  # Already not visible
-                
-                # Get all objects in this frame (excluding observer and target)
-                frame_objects = df_filtered[
-                    (df_filtered['frame_index'] == frame_idx) & 
-                    (df_filtered['track_id'] != oid1) & 
-                    (df_filtered['track_id'] != oid2)
-                ]
-                
-                if frame_objects.empty:
-                    continue
-                
-                obs_pos = np.array([common.loc[frame_idx, 'x1'], common.loc[frame_idx, 'y1']])
-                tgt_pos = np.array([common.loc[frame_idx, 'x1_target'], common.loc[frame_idx, 'y1_target']])
-                
-                # Check each potential occluder
-                for _, occluder in frame_objects.iterrows():
-                    occ_pos = np.array([occluder['x1'], occluder['y1']])
-                    
-                    # Simple occlusion test: is occluder on the line of sight?
-                    # Distance from occluder to line segment observer->target
-                    line_vec = tgt_pos - obs_pos
-                    line_len = np.linalg.norm(line_vec)
-                    
-                    if line_len < 1e-6:
-                        continue
-                    
-                    line_dir = line_vec / line_len
-                    to_occ = occ_pos - obs_pos
-                    
-                    # Project occluder onto line
-                    projection = np.dot(to_occ, line_dir)
-                    
-                    # Only occlude if occluder is between observer and target
-                    if 0 < projection < line_len:
-                        # Distance from occluder to line
-                        perp_dist = np.linalg.norm(to_occ - projection * line_dir)
-                        
-                        # Assume object size threshold for occlusion (e.g., 2 meters)
-                        if perp_dist < 2.0:
-                            visible[frame_idx] = False
-                            break
-        
-        return visible.astype(float).mean()
+        # Visibility is already binary (1.0 or 0.0), so we just take the mean
+        # Or use GreaterThan with threshold 0.5 to count visible frames
+        return self.GreaterThan(visibility_values, threshold=0.5)
 
     @udf()
     def car_in_relative_direction(
@@ -776,76 +345,54 @@ def {name}(*args, **kwargs) -> float:
         frame_window: Tuple[int, int],
         mode: Optional[str] = None
     ) -> float:
-        """Fraction of shared frames where oid2 is in a specific direction relative to oid1's heading.
-
-        Transforms oid2's position into oid1's local coordinate frame where:
-        - Forward: along oid1's heading direction
-        - Left: 90° counterclockwise from heading
-        - Right: 90° clockwise from heading  
-        - Back: opposite to heading direction
-
+        """Fraction of shared frames where oid2 is in a specific direction relative to oid1.
+        
+        Classifies oid2's position relative to oid1 into one of four directions based on
+        which component (forward/right) has larger absolute value:
+        - front: forward > 0 and |forward| > |right|
+        - back: forward < 0 and |forward| > |right|
+        - left: right < 0 and |right| > |forward|
+        - right: right > 0 and |right| > |forward|
+        
         Args:
             oid1: Reference car (defines the coordinate frame).
             oid2: Target car (position to check).
-            frame_window: Inclusive `(start, end)` frame indices.
+            frame_window: Inclusive (start, end) frame indices.
             mode: Direction to check (required):
-                  - "front" or "ahead": oid2 is ahead of oid1
-                  - "back" or "behind": oid2 is behind oid1
-                  - "left": oid2 is to the left of oid1
-                  - "right": oid2 is to the right of oid1
-
+                - "front" or "ahead": oid2 is primarily ahead of oid1
+                - "back" or "behind": oid2 is primarily behind oid1
+                - "left": oid2 is primarily to the left of oid1
+                - "right": oid2 is primarily to the right of oid1
+        
         Returns:
-            Mean indicator that oid2 is in the specified direction; 0.0 without overlap.
-
-        Needs columns `track_id`, `frame_index`, `x1`, `y1`, `agent_yaw`.
+            Score in [0.0, 1.0]: fraction of frames where oid2 is in specified direction.
         """
         if mode is None:
             raise ValueError("mode parameter is required for car_in_relative_direction")
         
-        start_frame, end_frame = frame_window
+        # Get relative position in local frame
+        rel_pos = self.relative_position_local(oid1, oid2, frame_window)
         
-        # Filter data for both objects in the frame window
-        df_filtered = self.df[
-            (self.df['frame_index'] >= start_frame) & 
-            (self.df['frame_index'] <= end_frame)
-        ]
-        
-        # Get reference and target data
-        reference = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
-        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
-        
-        # Get positions for common frames
-        common = reference.join(target, how='inner', rsuffix='_target')
-        
-        if common.empty:
+        if rel_pos.empty:
             return 0.0
         
-        # Calculate relative position vector (from oid1 to oid2)
-        dx = common['x1_target'] - common['x1']
-        dy = common['y1_target'] - common['y1']
+        forward = rel_pos['forward']
+        right = rel_pos['right']
         
-        # Get oid1's heading
-        heading = common['agent_yaw']
-        
-        # Transform relative position into oid1's local coordinate frame
-        # Forward component: dot product with heading direction
-        forward = dx * np.cos(heading) + dy * np.sin(heading)
-        
-        # Right component: dot product with right direction (90° clockwise from heading)
-        # Right vector is (sin(heading), -cos(heading))
-        right = dx * np.sin(heading) - dy * np.cos(heading)
-        
-        # Check condition based on mode
+        # Classify based on which component dominates
         mode_lower = mode.lower()
         if mode_lower in ["front", "ahead"]:
-            condition = forward > 0
+            # Ahead: forward is positive and dominates
+            condition = (forward > 0) & (np.abs(forward) > np.abs(right))
         elif mode_lower in ["back", "behind"]:
-            condition = forward < 0
+            # Behind: forward is negative and dominates
+            condition = (forward < 0) & (np.abs(forward) > np.abs(right))
         elif mode_lower == "left":
-            # Left is negative right
-            condition = right < 0
+            # Left: right is negative and dominates
+            condition = (right < 0) & (np.abs(right) > np.abs(forward))
         elif mode_lower == "right":
-            condition = right > 0
+            # Right: right is positive and dominates
+            condition = (right > 0) & (np.abs(right) > np.abs(forward))
         else:
             raise ValueError(
                 f"Invalid mode '{mode}' for car_in_relative_direction. "
@@ -853,7 +400,7 @@ def {name}(*args, **kwargs) -> float:
             )
         
         return condition.astype(float).mean()
-
+    
     # ========================================================================
     # COMPOSITIONAL SYSTEM: COMPUTATION FUNCTIONS
     # These return raw values (pd.Series) for each frame in the window
@@ -1023,7 +570,185 @@ def {name}(*args, **kwargs) -> float:
         accel = vel_diff / np.maximum(frame_diff, 1)
         
         return pd.Series(accel, index=frame_indices[1:])
+
+    def closing_speed(self, oid1: int, oid2: int, frame_window: Tuple[int, int]) -> pd.Series:
+        """This is the component of relative velocity along the line connecting the objects.
+        
+        Negative = approaching (distance decreasing)
+        Positive = separating (distance increasing)
+        Zero = perpendicular motion (distance constant)
+        
+        Args:
+            oid1: Reference track identifier.
+            oid2: Moving track identifier.
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.Series indexed by frame_index containing closing speed values.
+        """
+        start, end = frame_window
+        df_filtered = self.df[self.df['frame_index'].between(start, end)]
+        
+        d1 = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'vel_x', 'vel_y']]
+        d2 = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1', 'vel_x', 'vel_y']]
+        common = d1.join(d2, how='inner', lsuffix='_1', rsuffix='_2')
+        
+        if common.empty:
+            return pd.Series(dtype=float)
+        
+        # Compute relative position and velocity
+        rel_pos = common[['x1_2', 'y1_2']].values - common[['x1_1', 'y1_1']].values
+        rel_vel = common[['vel_x_2', 'vel_y_2']].values - common[['vel_x_1', 'vel_y_1']].values
+        
+        # Compute dot product
+        dot = np.einsum('ij,ij->i', rel_pos, rel_vel)
+        
+        # Compute distance
+        distances = np.linalg.norm(rel_pos, axis=1)
+        
+        # Normalize by distance to get closing speed
+        # Avoid division by zero (if distance is tiny, set closing speed to 0)
+        closing_speed = np.where(distances > 1e-6, dot / distances, 0.0)
     
+        return pd.Series(closing_speed, index=common.index)
+
+    
+    def visibility_score(self, oid1: int, oid2: int, cone_angle: float, 
+                    max_distance: float, frame_window: Tuple[int, int],
+                    check_occlusion: bool = False) -> pd.Series:
+        """Compute whether oid2 is visible to oid1 (1.0 = visible, 0.0 = not visible) for each frame.
+        
+        Args:
+            oid1: Observer track identifier.
+            oid2: Target track identifier.
+            cone_angle: Field of view angle in degrees (total cone angle).
+            max_distance: Maximum viewing distance.
+            frame_window: Inclusive (start, end) frame indices.
+            check_occlusion: If True, check for blocking objects.
+        
+        Returns:
+            pd.Series indexed by frame_index containing binary visibility (1.0 or 0.0).
+        """
+        start_frame, end_frame = frame_window
+        
+        df_filtered = self.df[
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        observer = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
+        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
+        common = observer.join(target, how='inner', rsuffix='_target')
+        
+        if common.empty:
+            return pd.Series(dtype=float)
+        
+        # Calculate relative position
+        dx = common['x1_target'] - common['x1']
+        dy = common['y1_target'] - common['y1']
+        distances = np.sqrt(dx**2 + dy**2)
+        
+        # Calculate angle to target
+        angle_to_target = np.arctan2(dy, dx)
+        observer_heading = common['agent_yaw']
+        relative_angle = angle_to_target - observer_heading
+        relative_angle = np.arctan2(np.sin(relative_angle), np.cos(relative_angle))
+        relative_angle_deg = np.degrees(np.abs(relative_angle))
+        
+        # Check visibility
+        half_cone = cone_angle / 2.0
+        within_cone = relative_angle_deg <= half_cone
+        within_distance = distances <= max_distance
+        visible = (within_cone & within_distance).astype(float)
+        
+        # Handle occlusion if requested
+        if check_occlusion:
+            for frame_idx in common.index:
+                if visible[frame_idx] == 0.0:
+                    continue
+                
+                frame_objects = df_filtered[
+                    (df_filtered['frame_index'] == frame_idx) & 
+                    (df_filtered['track_id'] != oid1) & 
+                    (df_filtered['track_id'] != oid2)
+                ]
+                
+                if frame_objects.empty:
+                    continue
+                
+                obs_pos = np.array([common.loc[frame_idx, 'x1'], common.loc[frame_idx, 'y1']])
+                tgt_pos = np.array([common.loc[frame_idx, 'x1_target'], common.loc[frame_idx, 'y1_target']])
+                
+                for _, occluder in frame_objects.iterrows():
+                    occ_pos = np.array([occluder['x1'], occluder['y1']])
+                    line_vec = tgt_pos - obs_pos
+                    line_len = np.linalg.norm(line_vec)
+                    
+                    if line_len < 1e-6:
+                        continue
+                    
+                    line_dir = line_vec / line_len
+                    to_occ = occ_pos - obs_pos
+                    projection = np.dot(to_occ, line_dir)
+                    
+                    if 0 < projection < line_len:
+                        perp_dist = np.linalg.norm(to_occ - projection * line_dir)
+                        if perp_dist < 2.0:
+                            visible[frame_idx] = 0.0
+                            break
+        
+        return pd.Series(visible, index=common.index)
+
+
+    def relative_position_local(self, oid1: int, oid2: int, 
+                           frame_window: Tuple[int, int]) -> pd.DataFrame:
+        """Compute relative position of oid2 in oid1's local coordinate frame.
+        
+        Transforms oid2's position into oid1's reference frame where:
+        - forward: along oid1's heading direction (positive = ahead)
+        - right: 90° clockwise from heading (positive = right side)
+        
+        Args:
+            oid1: Reference object (defines the coordinate frame).
+            oid2: Target object (position to transform).
+            frame_window: Inclusive (start, end) frame indices.
+        
+        Returns:
+            pd.DataFrame indexed by frame_index with columns ['forward', 'right'].
+            - forward > 0: oid2 is ahead of oid1
+            - forward < 0: oid2 is behind oid1
+            - right > 0: oid2 is to the right of oid1
+            - right < 0: oid2 is to the left of oid1
+            Empty DataFrame if objects don't overlap.
+        """
+        start_frame, end_frame = frame_window
+        
+        df_filtered = self.df[
+            (self.df['frame_index'] >= start_frame) & 
+            (self.df['frame_index'] <= end_frame)
+        ]
+        
+        reference = df_filtered[df_filtered['track_id'] == oid1].set_index('frame_index')[['x1', 'y1', 'agent_yaw']]
+        target = df_filtered[df_filtered['track_id'] == oid2].set_index('frame_index')[['x1', 'y1']]
+        common = reference.join(target, how='inner', rsuffix='_target')
+        
+        if common.empty:
+            return pd.DataFrame(columns=['forward', 'right'])
+        
+        # Calculate relative position vector (from oid1 to oid2)
+        dx = common['x1_target'] - common['x1']
+        dy = common['y1_target'] - common['y1']
+        heading = common['agent_yaw']
+        
+        # Transform to local coordinate frame
+        # Forward: dot product with heading direction vector
+        forward = dx * np.cos(heading) + dy * np.sin(heading)
+        
+        # Right: dot product with right direction vector (90° clockwise from heading)
+        right = dx * np.sin(heading) - dy * np.cos(heading)
+        
+        return pd.DataFrame({'forward': forward, 'right': right}, index=common.index)
+
     # ========================================================================
     # COMPOSITIONAL SYSTEM: OPERATOR FUNCTIONS
     # These take raw values (pd.Series) and return scores [0.0, 1.0]
@@ -1101,7 +826,7 @@ def {name}(*args, **kwargs) -> float:
         return scores.mean()
     
     def Equal(self, values: pd.Series, target: float, tol: float = 0.01) -> float:
-        """Score: fraction of frames where |value - target| <= tol.
+        """Score: fraction of frames where |value - target| <= tol (hard boundary).
         
         Args:
             values: Raw values from computation function.

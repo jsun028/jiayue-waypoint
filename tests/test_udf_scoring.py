@@ -56,107 +56,91 @@ class TestUDFScoring:
         
         return pd.DataFrame(frames)
     
-    def test_velocity_above_fractional_score(self, sample_df):
+    def test_velocity_greater_than_fractional_score(self, sample_df):
         """Test that velocity_above returns the correct fraction."""
         registry = UDFRegistry(sample_df)
+    
+        # Get velocity values for object 1
+        vel_values = registry.velocity(object_id=1, frame_window=(0, 9))
         
         # 7 out of 10 frames have velocity > 3.0
-        score = registry.velocity_above(
-            object_id=1,
-            velocity=3.0,
-            frame_window=(0, 9)
-        )
+        score = registry.GreaterThan(vel_values, threshold=3.0)
         
         assert isinstance(score, float), "Score should be a float"
         assert 0.0 <= score <= 1.0, "Score should be in [0, 1]"
         assert abs(score - 0.7) < 0.01, f"Expected ~0.7, got {score}"
     
-    def test_velocity_above_all_satisfy(self, sample_df):
+    def test_velocity_greater_than_all_satisfy(self, sample_df):
         """Test when all frames satisfy the condition."""
         registry = UDFRegistry(sample_df)
+
+        # Get velocity values for object 1
+        vel_values = registry.velocity(object_id=1, frame_window=(0, 9))
         
         # All 10 frames have velocity > 1.0
-        score = registry.velocity_above(
-            object_id=1,
-            velocity=1.0,
-            frame_window=(0, 9)
-        )
-        
+        score = registry.GreaterThan(vel_values, threshold=1.0)
+           
         assert abs(score - 1.0) < 0.01, f"Expected 1.0, got {score}"
     
-    def test_velocity_above_none_satisfy(self, sample_df):
+    def test_velocity_greater_than_none_satisfy(self, sample_df):
         """Test when no frames satisfy the condition."""
         registry = UDFRegistry(sample_df)
         
-        # No frames have velocity > 10.0
-        score = registry.velocity_above(
-            object_id=1,
-            velocity=10.0,
-            frame_window=(0, 9)
-        )
+        # Get velocity values for object 1
+        vel_values = registry.velocity(object_id=1, frame_window=(0, 9))
         
+        # No frames have velocity > 10.0
+        score = registry.GreaterThan(vel_values, threshold=10.0)
+     
         assert abs(score - 0.0) < 0.01, f"Expected 0.0, got {score}"
     
-    def test_velocity_below_fractional_score(self, sample_df):
+    def test_velocity_less_than_fractional_score(self, sample_df):
         """Test that velocity_below returns the correct fraction."""
         registry = UDFRegistry(sample_df)
         
+        # Get velocity values for object 1
+        vel_values = registry.velocity(object_id=1, frame_window=(0, 9))
+        
         # 3 out of 10 frames have velocity <= 3.0
-        score = registry.velocity_below(
-            object_id=1,
-            velocity=3.0,
-            frame_window=(0, 9)
-        )
+        score = registry.LessThan(vel_values, threshold=3.0)
         
         assert isinstance(score, float), "Score should be a float"
         assert 0.0 <= score <= 1.0, "Score should be in [0, 1]"
         assert abs(score - 0.3) < 0.01, f"Expected ~0.3, got {score}"
     
-    def test_dist_within_two_obj_fractional(self, sample_df):
-        """Test that distance predicates return fractional scores."""
+    def test_distance_less_than_fractional(self, sample_df):
+        """Test that distance LessThan returns fractional scores."""
         registry = UDFRegistry(sample_df)
+        
+        # Get distance values between objects
+        dist_values = registry.distance(oid1=1, oid2=2, frame_window=(0, 9))
         
         # Distance varies over time as objects move
         # Initial distance ~20, final distance ~15.5
-        score = registry.dist_within_two_obj(
-            oid1=1,
-            oid2=2,
-            distance=18.0,
-            frame_window=(0, 9)
-        )
+        score = registry.LessThan(dist_values, threshold=18.0)
         
         assert isinstance(score, float), "Score should be a float"
         assert 0.0 <= score <= 1.0, "Score should be in [0, 1]"
         # Some frames should be within distance, but not all
         assert 0.0 < score < 1.0, f"Expected fractional score, got {score}"
     
-    def test_heading_diff_agent_to_agent_fractional(self, sample_df):
-        """Test heading difference returns fractional scores."""
+    def test_heading_diff_equal_fractional(self, sample_df):
+        """Test heading difference with Equal operator."""
         registry = UDFRegistry(sample_df)
         
-        # Track 1 has yaw=0, Track 2 has yaw=π/4 (45 degrees)
-        # All frames should have heading diff = 45 degrees
-        score = registry.heading_diff_agent_to_agent(
-            oid1=1,
-            oid2=2,
-            expected_deg=45.0,
-            tol_deg=5.0,
-            frame_window=(0, 9)
-        )
+        heading_values = registry.heading_diff(oid1=1, oid2=2, frame_window=(0, 9))
+        
+        # All frames should equal 45 degrees within tolerance of 5
+        score = registry.Equal(heading_values, target=45.0, tol=5.0)
         
         assert isinstance(score, float), "Score should be a float"
         assert abs(score - 1.0) < 0.01, f"Expected 1.0 (all frames match), got {score}"
         
-        # Now test with wrong expected value
-        score = registry.heading_diff_agent_to_agent(
-            oid1=1,
-            oid2=2,
-            expected_deg=90.0,
-            tol_deg=5.0,
-            frame_window=(0, 9)
-        )
+        # Test with wrong target
+        score = registry.Equal(heading_values, target=90.0, tol=5.0)
         
         assert abs(score - 0.0) < 0.01, f"Expected 0.0 (no frames match), got {score}"
+
     
     def test_car_turning_fractional(self, sample_df):
         """Test that car_turning returns fractional scores."""
