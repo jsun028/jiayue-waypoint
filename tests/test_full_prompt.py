@@ -1,7 +1,7 @@
 """Test to see what the full prompt looks like to the LLM."""
 
 import pandas as pd
-from NL.registry import UDFRegistry
+from keyframeql.registry import UDFRegistry
 from NL_dspy.pipeline import SpecGenerator, _format_available_udfs_for_prompt
 
 def main():

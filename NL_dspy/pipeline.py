@@ -11,8 +11,8 @@ from typing import Iterable, Optional, Any, Union
 
 import dspy
 
-from NL.registry import GLOBAL_UDF_REGISTRY
-from NL.specs import (
+from keyframeql.registry import GLOBAL_UDF_REGISTRY
+from keyframeql.specs import (
     QuerySpec,
     PredicateAtom,
     PredicateExpr,
@@ -25,28 +25,32 @@ from NL.specs import (
 )
 
 
-PROMPT_HEADER = """You translate traffic scene descriptions into JSON specs for the keyframe query engine.
+PROMPT_HEADER = """TASK: Translate traffic scene descriptions into JSON specs for the keyframe query engine.
+- Output ONLY valid JSON; no markdown code fences or commentary.
 - Define keyframes as salient frames that capture important transitions/events.
 - Name keyframes k1, k2, k3, ... in temporal order.
-- Output ONLY valid JSON; no markdown code fences or commentary.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
 - For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
 - Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
 
-COMPOSITIONAL PREDICATE SYSTEM:
-The system supports two predicate styles:
+PREDICATE SYSTEM: 
 
-1. MONOLITHIC (legacy): Single function does computation + comparison
-   Example: {"type": "velocity_above", "obj": "car1", "value": 10.0}
-   
-2. COMPOSITIONAL (preferred): Separate computation and operator
-   Example: {"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 10.0}
-   
-Compositional style is MORE FLEXIBLE and composable:
-- Computation functions return raw values: distance, velocity, heading_diff, rotational_velocity, acceleration
-- Operator functions score the values: LessThan, GreaterThan, InRange, SoftClose, Equal
+Two styles are available: MONOLITHIC (single function) or COMPOSITIONAL (computation + operator).
+
+MONOLITHIC STYLE:
+Use when an existing predicate function exactly matches your query.
+Single function performs both computation and comparison.
+Format: {"type": "car_turning", "obj": "car1", "value": 2.0, "mode": "left"}
+
+STYLE 2: COMPOSITIONAL (Computation + Operator)
+Separates raw value computation from threshold comparison for flexibility.
+Use when: No existing monolithic predicate matches, or you need custom thresholds/operators.
+
+Structure: Operator(Computation(args), threshold)
+- Computation functions (return raw pd.Series values): distance, velocity, heading_diff, rotational_velocity, acceleration, closing_speed, visibility_score, relative_position_local
+- Operator function: LessThan, GreaterThan, InRange, SoftClose, Equal
 
 Example patterns:
 - LessThan(distance(car1, car2), 50.0) → {"type": "LessThan", "computation": {"type": "distance", "obj": "car1", "other_obj": "car2"}, "value": 50.0}
@@ -54,45 +58,46 @@ Example patterns:
 - SoftClose(heading_diff(car1, car2), 90.0, 30.0) → {"type": "SoftClose", "computation": {"type": "heading_diff", "obj": "car1", "other_obj": "car2"}, "value": 90.0, "tol": 30.0}
 - InRange(velocity(car1), 2.0, 8.0) → {"type": "InRange", "computation": {"type": "velocity", "obj": "car1"}, "value": 2.0, "tol": 8.0}
 
-USE COMPOSITIONAL STYLE for new predicates unless you need legacy UDF compatibility.
+JSON format:
+{"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 5.0}
 
-Discrete Sliders for Tunable Values:
-- For numeric parameters like "value" and "tol" (tolerance), you SHOULD use DiscreteSlider objects instead of plain floats.
-- A DiscreteSlider has three settings that users select at runtime to control query selectivity
-- User can run with --slider-setting=low (most selective), --slider-setting=medium (balanced), or --slider-setting=high (most permissive)
-- The "medium" value should be your best estimate; adjust low/high to create a useful tuning range
+DISCRETE SLIDERS
 
-CRITICAL - Slider Direction Based on Predicate Semantics:
-The slider keys "low"/"medium"/"high" refer to SELECTIVITY, not the numeric values!
-- "low" = most SELECTIVE (fewest results)
-- "medium" = balanced
-- "high" = most PERMISSIVE (most results)
+Use DiscreteSlider objects for numeric parameters (value, tol) to enable runtime tuning.
+Three settings: low (most selective), medium (balanced), high (most permissive).
+The "medium" value should be your best estimate; adjust low/high to create a useful tuning range
+Format: {"low": X, "medium": Y, "high": Z}
 
-For "above/below" threshold predicates:
-- velocity_above(X): smaller X is easier to exceed (MORE results)
-  → {"low": 2.0, "medium": 1.0, "high": 0.5}  ← "high" selectivity uses small threshold
-- velocity_below(X): larger X is easier to stay under (MORE results)
-  → {"low": 0.05, "medium": 0.1, "high": 0.2}
+CRITICAL RULE: Slider keys refer to SELECTIVITY (how many results), not numeric values.
+- low = fewest results (most selective)
+- medium = balanced
+- high = most results (most permissive)
 
-For distance predicates:
-- dist_within_two_obj(X): larger X allows more distant pairs (MORE results)
-  → {"low": 50.0, "medium": 100.0, "high": 200.0}
+Direction rules by operator:
+- LessThan(X): smaller threshold = more selective 
+- GreaterThan(X): larger threshold = more selective 
+- InRange(min, max): narrow range = more selective → widen range from low to high
+- SoftClose(target, cutoff): larger cutoff = more permissive. target (domain-specific) doesn't affect selectivity much
 
-For angle predicates:
-- heading_diff(value=A, tol=T): larger T accepts more variation (MORE results)
-  → value: {"low": 85, "medium": 90, "high": 95}  ← target angle doesn't affect selectivity much
-  → tol: {"low": 10, "medium": 20, "high": 30}    ← larger tolerance = more permissive
+Ask: "Does a LARGER number make the predicate EASIER to satisfy?"
+- Easier → ascending values (low < medium < high)
+- Harder → descending values (low > medium > high)
 
-Rule of thumb:
-- Ask: "Does a LARGER number make the predicate EASIER or HARDER to satisfy?"
-- Easier → use ascending values (low < medium < high)
-- Harder → use descending values (low > medium > high)
+CONSTRUCTION GUIDE
+- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
+- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
+- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
+- "other_obj" field: for pairwise predicates, use second object alias
+- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
+- Map function parameters to PredicateAtom fields as shown in each spec line
 
 Available predicates (each shows function signature and PredicateAtom construction):
 {available_udfs}
 
-Constraint semantics (what the engine enforces):
-- always:
+CONSTRAINTS
+
+Types:
+- always: Predicate holds continuously for duration
   * Self-anchored: {"kind":"always", "anchor": null, "target": "kX", "duration_sec": D}
     - Interpreted as: when evaluating keyframe kX at frame t, kX must hold continuously on [t, t+D].
   * Cross-anchored: {"kind":"always", "anchor": "kA", "target": "kB", "duration_sec": D}
@@ -104,27 +109,16 @@ Constraint semantics (what the engine enforces):
     - Comparators are reserved for future use; omit or leave empty.
 - Keyframe ordering: the engine only accepts strictly increasing keyframes in results (k1 < k2 < ...). Gaps must be within reasonable bounds.
 
-PredicateAtom construction guide:
-- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
-- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
-- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
-- "other_obj" field: for pairwise predicates, use second object alias
-- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
-- Map function parameters to PredicateAtom fields as shown in each spec line
-
-- You may propose a new predicate only if absolutely required.
-- Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
-- Do not use interframe constraints yet, they do not work.
-
 Other guidance:
+- where clause in JSON format should use "args" instead of "arg" no matter how long the list is
+- Always include a concise "explanation" string that summarizes the reasoning behind the design of objects, keyframes, and constraints.
 - Keep the number of objects minimal for the story; use the ego alias only when the NL explicitly refers to the ego vehicle (e.g., "ego nearly hits pedestrian").
-- Prefer agent-ego predicates (e.g., heading_diff_agent_to_ego) when relating an agent to the ego; use agent-agent predicates for agent pairs.
 - Remember to use DiscreteSlider objects for all numeric thresholds and tolerances to enable post-generation tuning.
 
 CRITICAL - Avoiding Over-Constrained Queries:
 - Each predicate multiplies selectivity - more predicates = exponentially fewer matches
 - EARLY keyframes (k1) should be SIMPLER and BROADER to ensure matches exist before refining
-- Limit k1 to 2-4 predicates maximum; use the most essential conditions only
+- Limit k1 to 3 predicates maximum; use the most essential conditions only
 - For multi-keyframe specs (3+), keep each keyframe to 2-3 predicates
 - Use BROAD slider ranges in early keyframes: "high" value should be quite permissive
 - Distance thresholds: use 50-300m for proximity (not <10m unless describing near-collision)

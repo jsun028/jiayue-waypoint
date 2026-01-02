@@ -8,10 +8,10 @@ import pytest
 import pandas as pd
 import numpy as np
 from loguru import logger
-from NL.registry import UDFRegistry
-from NL.compiler import QueryCompiler
-from NL.specs import (
-    QuerySpec, ObjectsSpec, KeyframeSpec, AlwaysSpec,
+from keyframeql.registry import UDFRegistry
+from keyframeql.compiler import QueryCompiler
+from keyframeql.specs import (
+    QuerySpec, ObjectsSpec, KeyframeSpec, AlwaysSpec, ComputationSpec,
     PredicateAtom, PredicateExpr
 )
 
@@ -95,8 +95,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -150,16 +150,16 @@ class TestEndToEndPipeline:
                             PredicateExpr(
                                 op="ATOM",
                                 atom=PredicateAtom(
-                                    type="velocity_above",
-                                    obj="car1",
+                                    type="GreaterThan",
+                                    computation=ComputationSpec(type="velocity", obj="car1"),
                                     value=2.0
                                 )
                             ),
                             PredicateExpr(
                                 op="ATOM",
                                 atom=PredicateAtom(
-                                    type="velocity_above",
-                                    obj="car2",
+                                    type="GreaterThan",
+                                    computation=ComputationSpec(type="velocity", obj="car2"),
                                     value=2.0
                                 )
                             )
@@ -205,8 +205,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -251,8 +251,8 @@ class TestEndToEndPipeline:
                     where=PredicateExpr(
                         op="ATOM",
                         atom=PredicateAtom(
-                            type="velocity_above",
-                            obj="car1",
+                            type="GreaterThan",
+                            computation=ComputationSpec(type="velocity", obj="car1"),
                             value=3.0
                         )
                     )
@@ -309,15 +309,15 @@ class TestScoreComparison:
             where=PredicateExpr(
                 op="ATOM",
                 atom=PredicateAtom(
-                    type="velocity_above",
-                    obj="car1",
+                    type="GreaterThan",
+                    computation=ComputationSpec(type="velocity", obj="car1"),
                     value=4.0
                 )
             )
         )
         
         assignment = {"car1": 1}
-        score = compiler.evaluate_keyframe_with_binding(
+        score = compiler.evaluator.evaluate_keyframe_with_binding(
             kf, frame_window=(0, 19), object_assignment=assignment
         )
         

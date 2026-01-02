@@ -10,9 +10,9 @@ This enables flexible composition like:
 import pytest
 import pandas as pd
 import numpy as np
-from NL.registry import UDFRegistry
-from NL.evaluator import QueryEvaluator
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.evaluator import QueryEvaluator
+from keyframeql.specs import (
     PredicateAtom,
     PredicateExpr,
     KeyframeSpec,
@@ -305,47 +305,6 @@ class TestCompositionalEvaluation:
         assert score > 0.99
 
 
-class TestMonolithicCompatibility:
-    """Ensure monolithic (legacy) predicates still work."""
-    
-    def test_monolithic_velocity_above(self, evaluator):
-        """Test legacy velocity_above predicate."""
-        atom = PredicateAtom(
-            type="velocity_above",
-            obj="car1",
-            value=0.3
-        )
-        
-        frame_window = (0, 10)
-        object_assignment = {"car1": 1}
-        
-        score = evaluator.evaluate_predicate_atom_with_binding(
-            atom, frame_window, object_assignment
-        )
-        
-        # Object 1 has velocity=0.5 > 0.3
-        assert score > 0.99
-    
-    def test_monolithic_dist_within(self, evaluator):
-        """Test legacy dist_within_two_obj predicate."""
-        atom = PredicateAtom(
-            type="dist_within_two_obj",
-            obj="car1",
-            other_obj="car2",
-            value=97.0
-        )
-        
-        frame_window = (0, 10)
-        object_assignment = {"car1": 1, "car2": 2}
-        
-        score = evaluator.evaluate_predicate_atom_with_binding(
-            atom, frame_window, object_assignment
-        )
-        
-        # Similar to compositional test above
-        assert 0.3 < score < 0.6
-
-
 class TestDiscreteSliderWithComposition:
     """Test DiscreteSlider resolution in compositional predicates."""
     
@@ -447,6 +406,25 @@ class TestPredicateExprWithComposition:
     
     def test_mixed_monolithic_and_compositional(self, evaluator):
         """Test mixing monolithic and compositional in same expression."""
+        frame_window = (0, 10)
+        object_assignment = {"car1": 1, "car2": 2}
+
+        atom = PredicateAtom(
+            type="LessThan",
+            computation=ComputationSpec(
+                            type="distance",
+                            obj="car1",
+                            other_obj="car2"
+                        ),
+            value=150.0
+        )
+        score = evaluator.evaluate_predicate_atom_with_binding(
+            atom, frame_window, object_assignment
+        )
+                 
+        # Composition ocndiation holds
+        assert score == 1
+
         expr = PredicateExpr(
             op="AND",
             args=[
@@ -454,9 +432,9 @@ class TestPredicateExprWithComposition:
                 PredicateExpr(
                     op="ATOM",
                     atom=PredicateAtom(
-                        type="velocity_above",
+                        type="car_turning",
                         obj="car1",
-                        value=0.3
+                        value=0.1
                     )
                 ),
                 # Compositional
@@ -475,15 +453,12 @@ class TestPredicateExprWithComposition:
             ]
         )
         
-        frame_window = (0, 10)
-        object_assignment = {"car1": 1, "car2": 2}
-        
         score = evaluator.evaluate_predicate_expr_with_binding(
             expr, frame_window, object_assignment
         )
-        
-        # Both conditions should be satisfied
-        assert score > 0.5
+                
+        # Monolithic condition fails
+        assert score == 0
 
 
 class TestEdgeCases:

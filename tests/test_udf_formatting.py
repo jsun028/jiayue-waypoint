@@ -2,7 +2,7 @@
 
 import sys
 import pandas as pd
-from NL.registry import UDFRegistry
+from keyframeql.registry import UDFRegistry
 from NL_dspy.pipeline import _format_udf_info
 
 def main():

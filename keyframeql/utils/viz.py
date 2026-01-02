@@ -1,4 +1,4 @@
-from NL.utils.nuscene_traj_viz import plot_bev_snapshot
+from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
 from pathlib import Path
 import json
 import pandas as pd
@@ -28,7 +28,8 @@ def _write_results_json(results, out_path: str) -> None:
     with open(out_path, "w") as f:
         json.dump(safe, f, indent=2, sort_keys=True)
 
-def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Path, fps: int = 10, top_k: int | None = None) -> None:
+def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Path, 
+                             fps: int = 10, top_k: int | None = None, fname: str | None = None) -> None:
     # Lazy import to avoid backend issues when not requested
     import matplotlib
     matplotlib.use("Agg")
@@ -97,7 +98,10 @@ def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Pat
             ax.set_autoscale_on(False)
 
         anim = FuncAnimation(fig, lambda i: update(frames[i]), frames=len(frames), interval=1000 / max(1, fps), repeat=True)
-        out_path = out_dir / f"result_{idx+1}_score_{score:.4f}.gif"
+        if fname is not None:
+            out_path = out_dir / f"{fname}.gif"
+        else:
+            out_path = out_dir / f"result_{idx+1}_score_{score:.4f}.gif"
         writer = PillowWriter(fps=fps)
         anim.save(out_path, writer=writer)
         plt.close(fig)

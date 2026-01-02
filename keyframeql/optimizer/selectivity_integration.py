@@ -1,7 +1,7 @@
-from NL.optimizer.selectivity_estimator import SelectivityEstimator
+from keyframeql.optimizer.selectivity_estimator import SelectivityEstimator
 import numpy as np
-from NL.registry import UDFRegistry
-from NL.specs import PredicateAtom, PredicateExpr
+from keyframeql.registry import UDFRegistry
+from keyframeql.specs import PredicateAtom, PredicateExpr
 import inspect
 import numpy as np
 import pandas as pd

@@ -7,19 +7,19 @@ from tqdm import tqdm
 # logger.add("compiler.log", rotation="1 week")
 # logger.info("QueryCompiler initialized")
 
-from NL.registry import UDFRegistry
-from NL.specs import (
+from keyframeql.registry import UDFRegistry
+from keyframeql.specs import (
     KeyframeSpec,
     QuerySpec,
 )
 from typing import Dict, List, Tuple
-from NL.df_utils import (
+from keyframeql.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
     find_common_time_range,
 )
-from NL.evaluator import QueryEvaluator
-from NL.optimizer.selectivity_integration import SelectivityIntegration
+from keyframeql.evaluator import QueryEvaluator
+from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 
 
 class QueryCompiler:
@@ -142,7 +142,7 @@ class QueryCompiler:
         if fixed_bindings and not object_assignments:
             object_assignments = [fixed_bindings.copy()]
         
-        print(f"object_assignments: {object_assignments}")
+        print(f"[DEBUG] object_assignments: {object_assignments}")
 
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
@@ -163,7 +163,7 @@ class QueryCompiler:
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
 
-            print(f"candidate_frames: {candidate_frames}")
+            # print(f"candidate_frames: {candidate_frames}")
             
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
@@ -275,6 +275,7 @@ class QueryCompiler:
                     'object_assignment': assignment,
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
+                    'keyframe_scores': combination['individual_scores'],
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
                                      for alias in assignment.keys()},

@@ -7,9 +7,9 @@ from individual predicates.
 import pytest
 import pandas as pd
 import numpy as np
-from NL.registry import UDFRegistry
-from NL.compiler import QueryCompiler
-from NL.specs import PredicateAtom, PredicateExpr, KeyframeSpec
+from keyframeql.registry import UDFRegistry
+from keyframeql.compiler import QueryCompiler
+from keyframeql.specs import PredicateAtom, PredicateExpr, KeyframeSpec, ComputationSpec
 from loguru import logger
 
 
@@ -74,16 +74,19 @@ class TestPredicateEvaluation:
         """Test evaluation of a single atomic predicate."""
         # Create a simple atomic predicate
         atom = PredicateAtom(
-            type="velocity_above",
-            obj="car1",
+            type="GreaterThan",
+            computation=ComputationSpec(
+                type="velocity",
+                obj="car1"
+            ),
             value=3.0
         )
-        
+            
         expr = PredicateExpr(op="ATOM", atom=atom)
         
         # Car1 is track_id=1, which has velocity > 3.0 in 7/10 frames
         assignment = {"car1": 1}
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -94,8 +97,16 @@ class TestPredicateEvaluation:
     def test_and_combines_with_minimum(self, compiler):
         """Test that AND takes the minimum of scores."""
         # Create two atomic predicates with different scores
-        atom1 = PredicateAtom(type="velocity_above", obj="car1", value=3.0)
-        atom2 = PredicateAtom(type="velocity_above", obj="car1", value=4.5)
+        atom1 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=3.0
+        )
+        atom2 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=4.5
+        )
         
         expr1 = PredicateExpr(op="ATOM", atom=atom1)
         expr2 = PredicateExpr(op="ATOM", atom=atom2)
@@ -106,15 +117,15 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Get individual scores
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get AND score
-        and_score = compiler.evaluate_predicate_expr_with_binding(
+        and_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             and_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -130,8 +141,17 @@ class TestPredicateEvaluation:
     def test_or_combines_with_maximum(self, compiler):
         """Test that OR takes the maximum of scores."""
         # Create two atomic predicates with different scores
-        atom1 = PredicateAtom(type="velocity_above", obj="car1", value=3.0)  # ~0.7
-        atom2 = PredicateAtom(type="velocity_above", obj="car1", value=10.0)  # ~0.0
+        # Create two atomic predicates with different scores
+        atom1 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=3.0  # ~0.7
+        )
+        atom2 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=10.0  # ~0.0
+        )
         
         expr1 = PredicateExpr(op="ATOM", atom=atom1)
         expr2 = PredicateExpr(op="ATOM", atom=atom2)
@@ -142,15 +162,15 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Get individual scores
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get OR score
-        or_score = compiler.evaluate_predicate_expr_with_binding(
+        or_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             or_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -165,19 +185,23 @@ class TestPredicateEvaluation:
     
     def test_not_complements_score(self, compiler):
         """Test that NOT returns 1.0 - score."""
-        atom = PredicateAtom(type="velocity_above", obj="car1", value=3.0)
+        atom = PredicateAtom(
+                type="GreaterThan",
+                computation=ComputationSpec(type="velocity", obj="car1"),
+                value=3.0
+            )        
         expr = PredicateExpr(op="ATOM", atom=atom)
         not_expr = PredicateExpr(op="NOT", args=[expr])
         
         assignment = {"car1": 1}
         
         # Get original score
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get NOT score
-        not_score = compiler.evaluate_predicate_expr_with_binding(
+        not_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             not_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -189,9 +213,21 @@ class TestPredicateEvaluation:
     def test_nested_expressions(self, compiler):
         """Test nested AND/OR expressions."""
         # Create: (velocity_above(3.0) AND velocity_below(6.0)) OR velocity_above(10.0)
-        atom1 = PredicateAtom(type="velocity_above", obj="car1", value=3.0)
-        atom2 = PredicateAtom(type="velocity_below", obj="car1", value=6.0)
-        atom3 = PredicateAtom(type="velocity_above", obj="car1", value=10.0)
+        atom1 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=3.0
+        )
+        atom2 = PredicateAtom(
+            type="LessThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=6.0
+        )
+        atom3 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=10.0
+        )
         
         expr1 = PredicateExpr(op="ATOM", atom=atom1)
         expr2 = PredicateExpr(op="ATOM", atom=atom2)
@@ -203,18 +239,18 @@ class TestPredicateEvaluation:
         assignment = {"car1": 1}
         
         # Evaluate nested expression
-        score = compiler.evaluate_predicate_expr_with_binding(
+        score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             or_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
         # Get individual scores for verification
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
-        score3 = compiler.evaluate_predicate_expr_with_binding(
+        score3 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr3, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -229,8 +265,16 @@ class TestPredicateEvaluation:
     def test_pairwise_predicates_with_and(self, compiler):
         """Test AND with pairwise predicates."""
         # Both cars have velocity > 2.0 for different fractions of frames
-        atom1 = PredicateAtom(type="velocity_above", obj="car1", value=2.0)
-        atom2 = PredicateAtom(type="velocity_above", obj="car2", value=2.0)
+        atom1 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=2.0
+        )
+        atom2 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car2"),
+            value=2.0
+        )
         
         expr1 = PredicateExpr(op="ATOM", atom=atom1)
         expr2 = PredicateExpr(op="ATOM", atom=atom2)
@@ -239,14 +283,14 @@ class TestPredicateEvaluation:
         
         assignment = {"car1": 1, "car2": 2}
         
-        score1 = compiler.evaluate_predicate_expr_with_binding(
+        score1 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr1, frame_window=(0, 9), object_assignment=assignment
         )
-        score2 = compiler.evaluate_predicate_expr_with_binding(
+        score2 = compiler.evaluator.evaluate_predicate_expr_with_binding(
             expr2, frame_window=(0, 9), object_assignment=assignment
         )
         
-        and_score = compiler.evaluate_predicate_expr_with_binding(
+        and_score = compiler.evaluator.evaluate_predicate_expr_with_binding(
             and_expr, frame_window=(0, 9), object_assignment=assignment
         )
         
@@ -290,23 +334,29 @@ class TestKeyframeEvaluation:
     def test_keyframe_with_and_preserves_fractional_score(self, compiler):
         """Test that keyframe evaluation preserves fractional scores."""
         # Create a keyframe with AND of two conditions
+        atom1 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=3.0
+        )
+        atom2 = PredicateAtom(
+            type="GreaterThan",
+            computation=ComputationSpec(type="velocity", obj="car1"),
+            value=4.5
+        )
         kf = KeyframeSpec(
             name="k1",
             where=PredicateExpr(
                 op="AND",
                 args=[
-                    PredicateExpr(op="ATOM", atom=PredicateAtom(
-                        type="velocity_above", obj="car1", value=3.0
-                    )),
-                    PredicateExpr(op="ATOM", atom=PredicateAtom(
-                        type="velocity_above", obj="car1", value=4.5
-                    ))
+                    PredicateExpr(op="ATOM", atom=atom1),
+                    PredicateExpr(op="ATOM", atom=atom2)
                 ]
             )
         )
         
         assignment = {"car1": 1}
-        score = compiler.evaluate_keyframe_with_binding(
+        score = compiler.evaluator.evaluate_keyframe_with_binding(
             kf, frame_window=(0, 9), object_assignment=assignment
         )
         

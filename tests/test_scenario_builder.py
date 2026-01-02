@@ -3,7 +3,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from NL.utils.scenario_builder import (
+from keyframeql.utils.scenario_builder import (
     ScenarioBuilder, create_scenario, Agent, AgentState,
     MoveForwardCommand, TurnCommand, IdleCommand, degrees_to_compass
 )
@@ -322,7 +322,7 @@ class TestIntegrationWithVisualization:
     
     def test_dataframe_compatible_with_viz(self):
         """Test that generated DataFrame is compatible with nuscene_traj_viz."""
-        from NL.utils.nuscene_traj_viz import plot_bev_snapshot
+        from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
         import matplotlib.pyplot as plt
         
         scenario = create_scenario(seed=42, duration_sec=2.5)

@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from NL.specs import print_spec_details
+from keyframeql.specs import print_spec_details
 
 from loguru import logger
 logger.add("nl_dspy_runs.log", rotation="1 week")
@@ -110,7 +110,7 @@ def main() -> None:
                 f"One or more dataset CSVs not found: {csv_list}. Set KEYFRAME_DATASET_CSV or DATASET_CSV."
             )
 
-        from NL.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
+        from keyframeql.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
         builder = KeyframeQLStatisticsBuilder(
             csv_list if len(csv_list) > 1 else csv_list[0],
             bins=20,
