@@ -1,3 +1,4 @@
 pyquaternion
 dspy
 modAL-python
+streamlit
