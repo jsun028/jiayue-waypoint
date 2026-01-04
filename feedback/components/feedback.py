@@ -34,11 +34,12 @@ def display_feedback_form(result_idx: int, result: dict,
     
     # Overall rating
     overall_rating = st.radio(
-        "Is this result a good match?",
+        "Overall, is this result a good match?",
         ["👍 Good Match", "👎 Poor Match", "🤔 Unclear"],
         key=f"overall_rating_{result_idx}"
     )
     
+    kf_feedback = {}
     # Per-keyframe feedback
     if active_kf:
         st.write("**Keyframe-specific feedback:**")
@@ -49,7 +50,6 @@ def display_feedback_form(result_idx: int, result: dict,
         else:
             st.info("Between keyframes")
 
-        kf_feedback = {}
         kf_rating = st.radio(
             f"{active_kf} correct?",
             ["✅ Yes", "❌ No", "⚠️ Partial"],
@@ -67,7 +67,6 @@ def display_feedback_form(result_idx: int, result: dict,
     if st.button("Submit Feedback", key=f"submit_{result_idx}"):
         feedback_data = {
             'overall_rating': overall_rating,
-            'confidence': confidence,
             'keyframe_feedback': kf_feedback,
             'comments': comments
         }

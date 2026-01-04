@@ -7,6 +7,66 @@ import streamlit as st
 # Visualization Components
 # ============================================================================
 
+def plot_progress_with_keyframes(start_frame, end_frame, keyframe_frames, current_frame, spec):
+    """Create progress bar with keyframe markers and regions."""
+    fig, ax = plt.subplots(figsize=(12, 0.8))
+    
+    # Colors for keyframes
+    colors = {'k1': '#2ecc71', 'k2': '#3498db', 'k3': '#e74c3c', 'k4': '#9b59b6'}
+    
+    # Draw background (unfilled portion)
+    ax.barh(0, end_frame - start_frame, left=start_frame, height=0.4, 
+            color='lightgray', alpha=0.3, edgecolor='gray', linewidth=1)
+    
+    # Draw progress (filled portion up to current frame)
+    if current_frame > start_frame:
+        ax.barh(0, current_frame - start_frame, left=start_frame, height=0.4, 
+                color='#3498db', alpha=0.5, edgecolor='none')
+    
+    # Draw keyframe regions (from constraints)
+    for constraint in spec.constraints:
+        if constraint.kind == 'always':
+            target_kf = constraint.target
+            if target_kf in keyframe_frames:
+                kf_frame = keyframe_frames[target_kf]
+                duration_frames = int(constraint.duration_sec * 10)  # Assuming 10 fps
+                color = colors.get(target_kf, '#95a5a6')
+                
+                # Draw colored region for keyframe duration
+                ax.barh(0, duration_frames, left=kf_frame, height=0.6,
+                       color=color, alpha=0.2, edgecolor=color, linewidth=5)
+    
+    # Draw keyframe markers (vertical lines and diamonds)
+    for kf_name, kf_frame in keyframe_frames.items():
+        color = colors.get(kf_name, '#95a5a6')
+        
+        # Diamond marker
+        ax.plot(kf_frame, 0, 'D', color=color, markersize=12, 
+                markeredgecolor='white', markeredgewidth=1.5, zorder=4)
+        
+        # Label above
+        ax.text(kf_frame, 0.5, kf_name, ha='center', va='bottom',
+                fontsize=10, color=color, weight='bold')
+    
+    # Draw current position (black triangle)
+    ax.plot(current_frame, 0, 'v', color='black', markersize=14, 
+            markeredgecolor='white', markeredgewidth=1, zorder=5)
+    
+    # Add frame numbers at current position
+    ax.text(current_frame, -0.5, f"Frame {current_frame}", 
+            ha='center', va='top', fontsize=9, color='black', weight='bold')
+    
+    # Styling
+    ax.set_xlim(start_frame - 2, end_frame + 2)
+    ax.set_ylim(-0.8, 0.8)
+    ax.set_yticks([])
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.grid(True, axis='x', alpha=0.2, linestyle='--')
+    
+    return fig
+
 def plot_bev_with_keyframe_info(df: pd.DataFrame, frame_idx: int, result: dict,
                                 active_kf: str | None,
                                 xlim: tuple = None, ylim: tuple = None,
@@ -24,7 +84,7 @@ def plot_bev_with_keyframe_info(df: pd.DataFrame, frame_idx: int, result: dict,
         trajectory_length: Number of past frames to show in trajectory
         debug: Enable debug output
     """
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=72)
     
     # Get frame data
     frame_data = df[df['frame_index'] == frame_idx]
@@ -175,45 +235,6 @@ def plot_bev_with_keyframe_info(df: pd.DataFrame, frame_idx: int, result: dict,
     
     return fig
 
-def plot_timeline(keyframe_frames: dict, current_frame: int, 
-                 start_frame: int, end_frame: int, spec):
-    """Plot timeline with keyframe markers and constraints."""
-    fig, ax = plt.subplots(figsize=(12, 2))
-    
-    # Draw timeline bar
-    ax.barh(0, end_frame - start_frame, left=start_frame, height=0.3, 
-            color='lightgray', alpha=0.5)
-    
-    # Draw keyframe markers
-    colors = {'k1': 'green', 'k2': 'blue', 'k3': 'red', 'k4': 'purple'}
-    for kf_name, kf_frame in sorted(keyframe_frames.items()):
-        color = colors.get(kf_name, 'orange')
-        ax.axvline(kf_frame, color=color, linewidth=3, label=kf_name, alpha=0.8)
-        ax.text(kf_frame, 0.5, kf_name, ha='center', va='bottom', 
-                fontsize=12, weight='bold', color=color)
-    
-    # Draw "always" constraint durations
-    for constraint in spec.constraints:
-        if constraint.kind == 'always':
-            target_kf = constraint.target
-            if target_kf in keyframe_frames:
-                kf_frame = keyframe_frames[target_kf]
-                duration_frames = int(constraint.duration_sec * 10)  # Assuming 10 fps
-                ax.barh(0, duration_frames, left=kf_frame, height=0.5,
-                       color=colors.get(target_kf, 'orange'), alpha=0.2)
-    
-    # Draw current frame position
-    ax.axvline(current_frame, color='black', linewidth=2, linestyle='--', 
-               label='Current', alpha=0.8)
-    
-    ax.set_xlim(start_frame - 5, end_frame + 5)
-    ax.set_ylim(-1, 1)
-    ax.set_xlabel('Frame Index')
-    ax.set_yticks([])
-    ax.legend(loc='upper right', fontsize=10)
-    ax.grid(True, axis='x', alpha=0.3)
-    
-    return fig
 
 def display_predicate_panel(predicate_status: dict, active_kf: str | None):
     """Display predicate satisfaction status."""

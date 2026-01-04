@@ -1,5 +1,4 @@
 ## Installation 
-
 modAL
 ```
 pip install modAL-python

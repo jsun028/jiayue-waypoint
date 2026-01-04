@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import pickle
 import os
+import time
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -140,13 +141,9 @@ def main():
     end_frame = summary['end_frame']
     
     # Initialize persistent frame state (not tied to widget)
-    frame_state_key = f'current_frame_{result_idx}'
-    slider_key = f'frame_slider_{result_idx}' 
-    autoplay_key = f'autoplay_{result_idx}'  
+    frame_state_key = f'current_frame_{result_idx}'   
     if frame_state_key not in st.session_state:
         st.session_state[frame_state_key] = start_frame
-    if autoplay_key not in st.session_state:
-        st.session_state[autoplay_key] = False
         
     # Ensure current frame is within bounds (in case result changed)
     if st.session_state[frame_state_key] < start_frame:
@@ -156,34 +153,39 @@ def main():
         
     # Display result metadata
     st.header(f"Result {result_idx + 1}")
-    
-    # Frame slider
-    st.markdown("---")
-    
-    # Callback to sync slider to persistent state
-    def sync_slider_to_state():
-        st.session_state[frame_state_key] = st.session_state[slider_key]
 
-    # Slider with callback
-    st.slider(
-        "Frame",
-        min_value=start_frame,
-        max_value=end_frame,
-        value=st.session_state[frame_state_key],
-        key=slider_key,
-        on_change=sync_slider_to_state
-    )
-
-    # Get current frame from persistent state
+    # Current frame from state
     current_frame = st.session_state[frame_state_key]
+    
+    # Timeline header with progress and keyframes
+    col_progress, col_active_kf = st.columns([3, 1])
+
+    with col_progress:        
+        # Enhanced progress bar with keyframe markers (REPLACES st.progress)
+        fig_progress = plot_progress_with_keyframes(
+            start_frame, end_frame, keyframe_frames, current_frame, spec
+        )
+        st.pyplot(fig_progress)
+        plt.close(fig_progress)
+
+    with col_active_kf:
+        active_kf_name = get_active_keyframe(current_frame, keyframe_frames, spec, result)
+        if active_kf_name:
+            kf_score = result[1]['keyframe_scores'].get(active_kf_name, 0.0)
+            st.metric("Active Keyframe", active_kf_name, f"{kf_score:.2f}")
+        else:
+            st.metric("Active Keyframe", "—", "")
 
     # Playback controls
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 2])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
     # Initialize autoplay state
     autoplay_key = f'autoplay_{result_idx}'
     if autoplay_key not in st.session_state:
         st.session_state[autoplay_key] = False
+    # In session state initialization
+    if f'last_autoplay_time_{result_idx}' not in st.session_state:
+        st.session_state[f'last_autoplay_time_{result_idx}'] = 0.0
 
     with col1:
         if st.button("⏮️ Prev", key=f"prev_btn_{result_idx}"):
@@ -220,99 +222,67 @@ def main():
                 st.session_state[frame_state_key] = target_frame
                 st.rerun()
 
-    with col5:
-        fps = st.number_input(
-            "FPS",
-            min_value=1,
-            max_value=30,
-            value=10,
-            step=1,
-            key=f"fps_{result_idx}",
-            label_visibility="visible"
-        )
 
-    # Autoplay logic
-    if st.session_state[autoplay_key]:
-        if current_frame < end_frame:
-            import time
-            time.sleep(1.0 / fps)
-            st.session_state[frame_state_key] = current_frame + 1
-            st.rerun()
-        else:
-            st.session_state[autoplay_key] = False
-    
-    # Display keyframe scores
-    # with st.expander("🎯 Keyframe Scores"):
-    #     kf_scores = result[1]['keyframe_scores']
-    #     if kf_scores:
-    #         cols = st.columns(len(kf_scores))
-    #         for idx, (kf_name, score) in enumerate(sorted(kf_scores.items())):
-    #             with cols[idx]:
-    #                 frame = keyframe_frames.get(kf_name, '?')
-    #                 st.metric(
-    #                     f"{kf_name} (frame {frame})", 
-    #                     f"{score:.3f}",
-    #                     delta=None
-    #                 )
-    
     # Determine active keyframe using updated function
-    active_kf = get_active_keyframe(current_frame, keyframe_frames, spec, result)
-    
+    xlim, ylim = calculate_axis_limits(df, start_frame, end_frame)
+
     # Main layout
     col_left, col_right = st.columns([3, 2])
-    xlim, ylim = calculate_axis_limits(df, start_frame, end_frame)
     
-    with col_left:
-        #st.subheader("🗺️ Bird's Eye View")
-
-        # Create placeholder for dynamic updates
-        bev_container = st.empty()
-
-        # Autoplay mode - animate through frames without rerun
+    with col_left:        
         if st.session_state[autoplay_key]:
-            import time
+            # Autoplay fps
+            fps = 5
+
+            # Autoplay mode with forced display
+            frame_num = st.session_state[frame_state_key]
             
-            start_play_frame = current_frame
-            for frame_num in range(start_play_frame, end_frame + 1):
-                # Update session state
-                st.session_state[frame_state_key] = frame_num
-                
-                # Get active keyframe for this frame
-                active_kf_current = get_active_keyframe(frame_num, keyframe_frames, spec, result)
-                
-                # Generate plot
-                fig = plot_bev_with_keyframe_info(
-                    df, frame_num, result, active_kf_current, xlim, ylim)
-                
-                # Update container
-                with bev_container.container():
-                    st.pyplot(fig)
-                
-                plt.close(fig)
-                
-                # Delay between frames
-                time.sleep(1.0 / fps)
+            st.caption(f"▶️ Frame {frame_num}/{end_frame}")
             
-            # Animation complete, stop autoplay
-            st.session_state[autoplay_key] = False
-            st.rerun()  # Final rerun to update UI state
-            
-        else:
-            # Normal single-frame display
-            fig_bev = plot_bev_with_keyframe_info(
-                df, current_frame, result, active_kf, xlim, ylim
+            # Display current frame
+            active_kf = get_active_keyframe(frame_num, keyframe_frames, spec, result)
+            fig = plot_bev_with_keyframe_info(
+                df, frame_num, result,active_kf,
+                xlim, ylim
             )
-            with bev_container:
-                st.pyplot(fig_bev)
+            st.pyplot(fig)
+            plt.close(fig)
+            
+            # Check timing
+            current_time = time.time()
+            last_time = st.session_state[f'last_autoplay_time_{result_idx}']
+            frame_delay = 1.0 / fps
+            
+            if current_time - last_time >= frame_delay:
+                if frame_num < end_frame:
+                    # Advance and rerun
+                    st.session_state[frame_state_key] = frame_num + 1
+                    st.session_state[f'last_autoplay_time_{result_idx}'] = current_time
+                    
+                    # Force immediate rerun
+                    time.sleep(0.05)  # Small delay for display
+                    st.rerun()
+                else:
+                    # Done
+                    st.session_state[autoplay_key] = False
+                    st.rerun()
+            else:
+                # Wait more
+                time.sleep(0.05)
+                st.rerun()
+        
+        else:
+            # Normal display
+            frame_to_display = st.session_state[frame_state_key]
+            st.caption(f"Frame {frame_to_display}/{end_frame}")
+            
+            active_kf = get_active_keyframe(frame_to_display, keyframe_frames, spec, result)
+            fig_bev = plot_bev_with_keyframe_info(
+                df, frame_to_display, result, active_kf,
+                xlim, ylim
+            )
+            st.pyplot(fig_bev)
             plt.close(fig_bev)
-    
-        # Timeline
-        st.subheader("⏱️ Timeline")
-        fig_timeline = plot_timeline(
-            keyframe_frames, current_frame, start_frame, end_frame, spec
-        )
-        st.pyplot(fig_timeline)
-        plt.close(fig_timeline) 
     
     with col_right:       
 
@@ -344,9 +314,6 @@ def main():
             st.code(str(kf_spec.where), language="python")
             
             st.info("💡 Full predicate evaluation coming soon - this shows the spec")
-    
-    
-    
 
 if __name__ == "__main__":
     main()
