@@ -29,6 +29,33 @@ class QueryEvaluator:
                 atoms.extend(self._collect_atoms(sub))
         return atoms
     
+    def _atom_to_str(self, atom: PredicateAtom) -> str:
+        atom_key = f"{atom.type}("
+        # Composition style
+        if atom.computation is not None:
+            comp = atom.computation
+            atom_key += f"{comp.type}(obj={comp.obj}"
+            if comp.other_obj is not None:
+                atom_key += f", other_obj={comp.other_obj}"
+            atom_key += ")"
+        else:           
+            atom_key += f"obj={atom.obj}"
+            if atom.other_obj:
+                atom_key += f", other_obj={atom.other_obj}"
+        if atom.value is not None:
+            if not isinstance(atom.value, DiscreteSlider):
+                atom_key += f", value={atom.value}"
+            elif self.slider_setting == "low":
+                atom_key += f", value={atom.value.low}"
+            elif self.slider_setting == "medium":
+                atom_key += f", value={atom.value.medium}"
+            else:
+                atom_key += f", value={atom.value.high}"
+        if atom.tol is not None:
+            atom_key += f", tol={atom.tol}"
+        atom_key += ")"
+        return atom_key
+    
     def seconds_to_frames(self, seconds: float) -> int:
         """Convert seconds to frames based on FPS."""
         return int(seconds * self.fps)

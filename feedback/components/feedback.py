@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 import streamlit as st
 from pathlib import Path
+import pandas as pd
 
 # ============================================================================
 # Feedback Collection
@@ -30,25 +31,56 @@ def display_feedback_form(result_idx: int, result: dict,
                           keyframe_frames: dict, active_kf: str | None):
     """Display feedback collection form."""
     st.markdown("---")
-    st.subheader("💬 Feedback")
+    st.subheader("Scoring")
     
+    kf_scores = result[1]['keyframe_scores']
+    # Create columns - one for each keyframe
+    cols = st.columns(len(kf_scores) + 1)
+    with cols[0]:
+        st.metric(label="aggregated", value=f"{result[1]['aggregate_score']:.2f}")
+    # Display each keyframe score in its own column
+    for idx, (kf_name, score) in enumerate(kf_scores.items()):
+        with cols[idx+1]:
+            st.metric(label=kf_name, value=f"{score:.2f}")
+    
+    st.subheader("💬 Feedback")
+
     # Overall rating
     overall_rating = st.radio(
         "Overall, is this result a good match?",
         ["👍 Good Match", "👎 Poor Match", "🤔 Unclear"],
         key=f"overall_rating_{result_idx}"
     )
+
     
     kf_feedback = {}
     # Per-keyframe feedback
     if active_kf:
-        st.write("**Keyframe-specific feedback:**")
+        st.markdown(f"#### Keyframe {active_kf}")
         
         # Keyframe info
-        if active_kf:
-            st.success(f"**{active_kf}** at frame {keyframe_frames.get(active_kf, '?')}")
-        else:
-            st.info("Between keyframes")
+        predicate_scores = result[1]["score_details"][active_kf]
+        # Create DataFrame for table display
+        table_data = []
+        for pred in predicate_scores:
+            score = predicate_scores[pred]
+            
+            table_data.append({
+                'Predicate': pred,
+                'Score': f"{score:.3f}",
+            })
+        
+        # Display as table
+        pred_df = pd.DataFrame(table_data)
+        st.dataframe(
+            pred_df,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                'Predicate': st.column_config.TextColumn(width="medium"),
+                'Score': st.column_config.NumberColumn(width="small"),
+            }
+        )
 
         kf_rating = st.radio(
             f"{active_kf} correct?",

@@ -86,7 +86,7 @@ def main():
     
     results_path = st.sidebar.text_input(
         "Results pickle path",
-        value="search-results.pkl"
+        value="results.pkl"
     )
     spec_path = st.sidebar.text_input(
         "Spec pickle path",
@@ -128,7 +128,7 @@ def main():
     result_idx = st.sidebar.selectbox(
         "Select Result",
         range(len(results)),
-        format_func=lambda i: f"Result {i+1} (score: {results[i][1]['aggregate_score']:.4f})"
+        format_func=lambda i: f"Result {i+1} (score: {results[i][1]['aggregate_score']:.2f})"
     )
     
     result = results[result_idx]
@@ -172,7 +172,7 @@ def main():
         active_kf_name = get_active_keyframe(current_frame, keyframe_frames, spec, result)
         if active_kf_name:
             kf_score = result[1]['keyframe_scores'].get(active_kf_name, 0.0)
-            st.metric("Active Keyframe", active_kf_name, f"{kf_score:.2f}")
+            st.metric("Active Keyframe", active_kf_name)
         else:
             st.metric("Active Keyframe", "—", "")
 
@@ -287,33 +287,7 @@ def main():
     with col_right:       
 
         # Feedback form
-        display_feedback_form(result_idx, result, keyframe_frames, active_kf)
-
-        # # Show collected feedback
-        # if st.sidebar.checkbox("Show all feedback"):
-        #     st.sidebar.markdown("---")
-        #     st.sidebar.subheader("📊 Feedback Summary")
-            
-        #     feedback_file = Path("feedback_data/feedback.jsonl")
-        #     if feedback_file.exists():
-        #         with open(feedback_file) as f:
-        #             all_feedback = [json.loads(line) for line in f]
-        #         st.sidebar.write(f"Total feedback entries: {len(all_feedback)}")
-    
-    # Predicate panel
-    st.markdown("---")
-    
-    # For now, show spec predicates (you'll need to implement actual evaluation)
-    if active_kf:
-        st.subheader(f"📋 Predicates for {active_kf}")
-        
-        # Find the keyframe in spec
-        kf_spec = next((kf for kf in spec.keyframes if kf.name == active_kf), None)
-        if kf_spec:
-            # Display predicate expression (simplified - you'll want to parse properly)
-            st.code(str(kf_spec.where), language="python")
-            
-            st.info("💡 Full predicate evaluation coming soon - this shows the spec")
+        display_feedback_form(result_idx, result, keyframe_frames, active_kf)   
 
 if __name__ == "__main__":
     main()

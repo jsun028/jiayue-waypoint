@@ -205,20 +205,13 @@ class QueryCompiler:
                 # combo is a tuple of (frame_idx, score) tuples
                 times = [item[0] for item in combo]
                 
-                # Check basic temporal ordering and gap constraints
+                # Check basic temporal ordering
                 valid = True
                 for i in range(len(times) - 1):
                     if times[i] >= times[i + 1]:  # Must be strictly increasing
                         valid = False
                         if self.track_stats:
                             self.reject_counters['time_order'] += 1
-                        break
-                    # Add gap constraints if needed (can be made configurable)
-                    gap = times[i + 1] - times[i]
-                    if gap < 1 or gap > 1000:  # Reasonable frame gap limits
-                        valid = False
-                        if self.track_stats:
-                            self.reject_counters['gap'] += 1
                         break
                 
                 if not valid:
@@ -227,10 +220,12 @@ class QueryCompiler:
                 # Build positions dict for cross-constraint evaluation
                 positions = {}
                 individual_scores = {}
-                for i, (frame_idx, score) in enumerate(combo):
+                score_details = {}
+                for i, (frame_idx, score, atom_scores) in enumerate(combo):
                     kf_name = kf_names[i]
                     positions[kf_name] = frame_idx
                     individual_scores[kf_name] = score
+                    score_details[kf_name] = atom_scores
                 
                 # Early dedup check: skip if time-window IoU overlaps with accepted
                 is_overlap = False
@@ -249,14 +244,18 @@ class QueryCompiler:
                         continue
 
                 # Evaluate cross-constraints only if not overlapping
-                ok, cross_score, score_details = self.evaluator.evaluate_cross_constraints(
+                ok, cross_score, cross_score_details = self.evaluator.evaluate_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
 
                 if ok:
                     if self.dedup_threshold > 0.0:
                         self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
-                    final_score = sum(individual_scores.values()) + cross_score
+                    # average per keyframe score
+                    final_score = np.average(list(individual_scores.values()))
+                    # TODO: figure out what to do with cross scores 
+                    final_score += cross_score
+                    score_details.update(cross_score_details)
                     valid_combinations.append({
                         'positions': positions,
                         'score': final_score,
@@ -276,6 +275,7 @@ class QueryCompiler:
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
                     'keyframe_scores': combination['individual_scores'],
+                    'cross_constraint_score': combination['cross_constraint_score'],
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
                                      for alias in assignment.keys()},
@@ -377,14 +377,7 @@ class QueryCompiler:
             # Track satisfied frames per predicate for debugging
             predicate_satisfied_frames = {}
             for atom in all_atoms:
-                atom_key = f"{atom.type}(obj={atom.obj}"
-                if atom.other_obj:
-                    atom_key += f", other_obj={atom.other_obj}"
-                if atom.value is not None:
-                    atom_key += f", value={atom.value}"
-                if atom.tol is not None:
-                    atom_key += f", tol={atom.tol}"
-                atom_key += ")"
+                atom_key = self.evaluator._atom_to_str(atom)
                 predicate_satisfied_frames[atom_key] = []
             
             # Scan each frame in the valid range
@@ -407,19 +400,14 @@ class QueryCompiler:
                     frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
                 
                 # Per-atom selectivity tracking and debugging
+                atom_scores = {}
                 for atom in all_atoms:
-                    atom_key = f"{atom.type}(obj={atom.obj}"
-                    if atom.other_obj:
-                        atom_key += f", other_obj={atom.other_obj}"
-                    if atom.value is not None:
-                        atom_key += f", value={atom.value}"
-                    if atom.tol is not None:
-                        atom_key += f", tol={atom.tol}"
-                    atom_key += ")"
-                    
+                    atom_key = self.evaluator._atom_to_str(atom)
+
                     try:
                         atom_score = self.evaluator.evaluate_predicate_atom_with_binding(
                             atom, frame_window, object_assignment)
+                        atom_scores[atom_key] = atom_score
                     except Exception as e:
                         atom_score = 0.0
                         if self.logger:
@@ -442,7 +430,7 @@ class QueryCompiler:
                 
                 score = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
-                    frame_candidates.append((frame_idx, score))
+                    frame_candidates.append((frame_idx, score, atom_scores))
             
             # Print debugging info for each predicate
             if self.debug:
