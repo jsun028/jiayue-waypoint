@@ -7,10 +7,12 @@ import json
 import os
 import pathlib
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from keyframeql.specs import print_spec_details
-
+from keyframeql.utils.data_loading import find_data_files
+from stats_prompt import format_stats_for_prompt
 from loguru import logger
 logger.add("nl_dspy_runs.log", rotation="1 week")
 
@@ -66,10 +68,10 @@ def parse_args() -> argparse.Namespace:
         help="Compute statistics in-memory and include in the prompt.",
     )
     stats.add_argument(
-        "--dataset-csv",
+        "--dataset-dir",
         type=str,
         default=None,
-        help="Path to dataset CSV file for statistics generation (falls back to KEYFRAME_DATASET_CSV or DATASET_CSV env vars).",
+        help="Path to dataset CSV file for statistics generation.",
     )
     stats.add_argument(
         "--stats-sample",
@@ -95,22 +97,10 @@ def main() -> None:
     if args.generate_stats:
 
         # Resolve dataset CSV path via env or a common default
-        dataset_csv = (
-            os.getenv("KEYFRAME_DATASET_CSV")
-            or os.getenv("DATASET_CSV")
-            # or str((pkg_root.parent / "dataset" / "scene_scene-0297.csv"))
-            or "dataset/scene_scene-0225.csv,dataset/scene_scene-0226.csv,dataset/scene_scene-0230.csv,dataset/scene_scene-0240.csv,dataset/scene_scene-0250.csv"
-        )
-        # Support comma-separated list of CSVs
-        csv_list = [s.strip() for s in dataset_csv.split(",")]
-        if len(csv_list) > 1:
-            print(f"Using multiple dataset CSVs: {csv_list}")
-        if not all(os.path.exists(path) for path in csv_list):
-            raise FileNotFoundError(
-                f"One or more dataset CSVs not found: {csv_list}. Set KEYFRAME_DATASET_CSV or DATASET_CSV."
-            )
+        dataset_dir = Path(args.dataset_dir).resolve()
+        csv_list = find_data_files(dataset_dir, "*.csv", False, None)
 
-        from keyframeql.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  # type: ignore
+        from keyframeql.optimizer.statistics_builder import KeyframeQLStatisticsBuilder  
         builder = KeyframeQLStatisticsBuilder(
             csv_list if len(csv_list) > 1 else csv_list[0],
             bins=20,
@@ -119,13 +109,8 @@ def main() -> None:
         ).load_dataset().compute_statistics()
         stats_meta = builder.metadata
 
-        if __package__ in {None, ""}:
-            from NL_dspy.stats_prompt import format_stats_for_prompt  # type: ignore
-        else:
-            from .stats_prompt import format_stats_for_prompt
         stats_text = format_stats_for_prompt(stats_meta)
         print("[DSPy][CLI] Generated dataset statistics for prompt grounding")
-
 
     print("[DSPy][CLI] Running pipeline …")
     result = run_pipeline(args.nl, pipeline, stats_text=stats_text)
@@ -140,9 +125,6 @@ def main() -> None:
         with open(args.dump_json, "w", encoding="utf-8") as handle:
             handle.write(result.spec_json)
         print(f"\nRaw JSON saved to {args.dump_json}")
-    # else:
-    #     print("\n=== Raw JSON ===")
-    #     print(json.dumps(json.loads(result.spec_json), indent=2))
 
     logger.info(f"Raw JSON: {json.dumps(json.loads(result.spec_json), indent=2)}")
 
