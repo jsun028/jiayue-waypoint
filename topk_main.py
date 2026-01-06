@@ -10,19 +10,10 @@ from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
 from keyframeql.learner import Reranker
 from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
-
-
+from keyframeql.utils.data_loading import find_data_files
 from keyframeql.utils.viz import _write_results_json, _generate_visualizations
 from keyframeql.specs import print_spec_details, QuerySpec
 
-def find_data_files(dataset_dir: Path, pattern: str, recursive: bool, limit: Optional[int]) -> List[Path]:
-    if recursive:
-        files = sorted(dataset_dir.rglob(pattern))
-    else:
-        files = sorted(dataset_dir.glob(pattern))
-    if limit is not None:
-        files = files[: max(0, limit)]
-    return [f for f in files if f.is_file()]
 
 logger.add("runs.log", rotation="1 week")
 
@@ -114,7 +105,7 @@ if __name__ == "__main__":
 
 
     dataset_dir = Path(args.dataset_dir).resolve()
-    data_files = find_data_files(dataset_dir, args.pattern, False, 10)
+    data_files = find_data_files(dataset_dir, args.pattern, False, None)
     if not data_files:
         print("No data files found. Nothing to do.")
         exit(1)
@@ -139,7 +130,7 @@ if __name__ == "__main__":
 
     # with open('viz_out/raw/results.pkl', 'rb') as f:
     #     top_results = pickle.load(f)
-    ranked_results = active_learning_loop(top_results, data_files, args.viz_dir)
-    plot_top_k(ranked_results, data_files, "viz_out/reranked/", 5)
-    with open('viz_out/reranked/results.pkl', 'wb') as f:
-        pickle.dump(ranked_results, f)
+    # ranked_results = active_learning_loop(top_results, data_files, args.viz_dir)
+    # plot_top_k(ranked_results, data_files, "viz_out/reranked/", 5)
+    # with open('viz_out/reranked/results.pkl', 'wb') as f:
+    #     pickle.dump(ranked_results, f)

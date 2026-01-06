@@ -7,12 +7,12 @@ import time
 import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
-from utils.data_loader import *
+from utils.result_parser import *
 from components.viewer import *
 from components.feedback import *
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from keyframeql.compiler import QueryCompiler
+from keyframeql.utils.data_loading import find_data_files
 
 
 # Page config
@@ -55,7 +55,7 @@ def load_data(results_path: str, spec_path: str, df_path: str):
     with open(spec_path, 'rb') as f:
         spec = pickle.load(f)
     dataset_dir = Path(df_path).resolve()
-    data_files = find_data_files(dataset_dir, "*.csv", False, 10)
+    data_files = find_data_files(dataset_dir, "*.csv", False, None)
     
     return results, spec, data_files
 
@@ -94,7 +94,7 @@ def main():
     )
     df_path = st.sidebar.text_input(
         "DataFrame path",
-        value="dataset/"
+        value="dataset/nuscene"
     )
     
     # Load data button
@@ -153,6 +153,8 @@ def main():
         
     # Display result metadata
     st.header(f"Result {result_idx + 1}")
+    file_name = str(data_files[result[0]]).split("/")[-1]
+    st.write(f"Dataset: {file_name}")
 
     # Current frame from state
     current_frame = st.session_state[frame_state_key]

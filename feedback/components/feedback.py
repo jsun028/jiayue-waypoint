@@ -1,28 +1,22 @@
 import json
 from datetime import datetime
 import streamlit as st
-from pathlib import Path
 import pandas as pd
 
 # ============================================================================
 # Feedback Collection
 # ============================================================================
 
-def save_feedback(result_idx: int, result: dict, feedback_data: dict):
-    """Save feedback to disk."""
-    feedback_dir = Path("feedback_data")
-    feedback_dir.mkdir(exist_ok=True)
-    
+def save_feedback(result_idx: int, feedback_data: dict):
+    """Save feedback to disk."""    
     feedback_entry = {
         'timestamp': datetime.now().isoformat(),
         'result_idx': result_idx,
-        'result_id': result.get('id', f"result_{result_idx}"),
-        'aggregate_score': result.get('aggregate_score', 0.0),
         **feedback_data
     }
     
     # Append to JSONL file
-    with open(feedback_dir / "feedback.jsonl", 'a') as f:
+    with open("feedback/label_data/labels.jsonl", 'a') as f:
         f.write(json.dumps(feedback_entry) + '\n')
     
     st.success("✅ Feedback saved!")
@@ -46,12 +40,17 @@ def display_feedback_form(result_idx: int, result: dict,
     st.subheader("💬 Feedback")
 
     # Overall rating
+    rating_map = {
+        "👍 Good Match": 1.0,
+        "👎 Poor Match": 0.0,
+        "🤔 Unclear": 0.5
+    }
     overall_rating = st.radio(
         "Overall, is this result a good match?",
         ["👍 Good Match", "👎 Poor Match", "🤔 Unclear"],
         key=f"overall_rating_{result_idx}"
     )
-
+    overall_score = rating_map[overall_rating]
     
     kf_feedback = {}
     # Per-keyframe feedback
@@ -82,12 +81,17 @@ def display_feedback_form(result_idx: int, result: dict,
             }
         )
 
+        kf_rating_map = {
+            "✅ Yes": 1.0,
+            "❌ No": 0.0,
+            "⚠️ Partial": 0.5
+        }
         kf_rating = st.radio(
             f"{active_kf} correct?",
             ["✅ Yes", "❌ No", "⚠️ Partial"],
             key=f"kf_feedback_{result_idx}_{active_kf}"
         )
-        kf_feedback[active_kf] = kf_rating
+        kf_feedback[active_kf] = kf_rating_map[kf_rating]
     
     # Comments
     comments = st.text_area(
@@ -98,8 +102,8 @@ def display_feedback_form(result_idx: int, result: dict,
     # Submit button
     if st.button("Submit Feedback", key=f"submit_{result_idx}"):
         feedback_data = {
-            'overall_rating': overall_rating,
+            'overall_rating': overall_score,
             'keyframe_feedback': kf_feedback,
             'comments': comments
         }
-        save_feedback(result_idx, result, feedback_data)
+        save_feedback(result_idx, feedback_data)
