@@ -7,9 +7,8 @@ from loguru import logger
 
 from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
-from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
 
-from keyframeql.utils.viz import _write_results_json, _generate_visualizations
+from dataset_specific.nuscene.viz import _write_results_json, _generate_visualizations
 from keyframeql.specs import print_spec_details, QuerySpec
 
 

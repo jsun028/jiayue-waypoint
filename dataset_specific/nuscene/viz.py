@@ -1,4 +1,4 @@
-from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
+from .nuscene_traj_viz import plot_bev_snapshot
 from pathlib import Path
 import json
 import pandas as pd

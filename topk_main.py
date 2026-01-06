@@ -9,10 +9,9 @@ from typing import List, Optional, Tuple
 from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
 from keyframeql.learner import Reranker
-from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
 from keyframeql.utils.data_loading import find_data_files
-from keyframeql.utils.viz import _write_results_json, _generate_visualizations
 from keyframeql.specs import print_spec_details, QuerySpec
+from dataset_specific.nuscene.viz import _generate_visualizations
 
 
 logger.add("runs.log", rotation="1 week")
@@ -105,7 +104,7 @@ if __name__ == "__main__":
 
 
     dataset_dir = Path(args.dataset_dir).resolve()
-    data_files = find_data_files(dataset_dir, args.pattern, False, None)
+    data_files = find_data_files(dataset_dir, args.pattern, False, 10)
     if not data_files:
         print("No data files found. Nothing to do.")
         exit(1)
