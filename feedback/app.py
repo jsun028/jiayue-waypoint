@@ -12,7 +12,7 @@ from components.viewer import *
 from components.feedback import *
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from keyframeql.utils.data_loading import find_data_files
+from keyframeql.utils.io import find_data_files
 
 
 # Page config

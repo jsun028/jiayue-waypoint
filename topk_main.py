@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 import pandas as pd
 from loguru import logger
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
 from keyframeql.learner import Reranker
-from keyframeql.utils.data_loading import find_data_files
+from keyframeql.utils.io import find_data_files
 from keyframeql.specs import print_spec_details, QuerySpec
 from dataset_specific.nuscene.viz import _generate_visualizations
 
@@ -20,7 +20,7 @@ logger.add("runs.log", rotation="1 week")
 def search_loop(spec_path, data_files: List[Path], coverage: float | None = None, track_stats: bool = True, 
     limit: int | None = None, dedup_threshold: float | None = None, metadata_path: str | None = None, 
     estimation_mode: bool = False,
-    slider_setting: str = "medium"):
+    slider_setting: str = "medium", dataset : str = "nuscene"):
 
     # Load a sample spec (support both pkl and JSON)
     spec_path_obj = Path(spec_path)
@@ -55,7 +55,8 @@ def search_loop(spec_path, data_files: List[Path], coverage: float | None = None
         compiler = QueryCompiler(
             registry=registry, df=df, logger=logger, 
             coverage=coverage, track_stats=track_stats, dedup_threshold=dedup_threshold, limit=limit, 
-            metadata_path=metadata_path, slider_setting=slider_setting)
+            metadata_path=metadata_path, slider_setting=slider_setting,
+            dataset=dataset)
         # Execute query with two-stage search
         results = compiler.execute_query(spec, estimation_mode=estimation_mode)
         for result in results:
@@ -89,6 +90,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=str, required=True)
     parser.add_argument("--dataset-dir", type=str, required=True, help="Folder containing data files (e.g., CSVs)")
+    parser.add_argument("--dataset", type=str, default='nuscene', required=True, help="Name of dataset (nuscene, virat...)")
     parser.add_argument("--pattern", type=str, default="*.csv", help="Glob pattern to match data files")
     parser.add_argument("--coverage", type=float, default=1.0, help="Fraction of frames to scan (0-1]")
     parser.add_argument("--track-stats", action="store_true", help="Enable predicate selectivity stats")
@@ -120,6 +122,7 @@ if __name__ == "__main__":
         metadata_path=args.metadata_path,
         estimation_mode=args.estimation_mode,
         slider_setting=args.slider_setting,
+        dataset=args.dataset
     )
     
     # Plot top-k before reranking

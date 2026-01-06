@@ -24,7 +24,8 @@ from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str | None = None, slider_setting: str = "medium", debug: bool = False):
+        metadata_path: str | None = None, slider_setting: str = "medium", 
+        dataset: str = "nuscene", debug: bool = False):
         self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
@@ -38,6 +39,7 @@ class QueryCompiler:
         self.coverage = max(0.0, min(1.0, coverage))
         self.dedup_threshold = dedup_threshold
         self.limit = limit
+        self.dataset_name = dataset
         # Query evaluator
         self.evaluator = QueryEvaluator(df, registry, self.fps, slider_setting, logger)
 
@@ -102,8 +104,8 @@ class QueryCompiler:
         # Only one ego alias is expected; if present, pre-bind it and exclude from enumeration
         ego_alias = next((a for a, info in aliases.items() if info.get('class') == 'ego'), None)
 
-        # print(f"aliases: {aliases}")
-        # print(f"ego_alias: {ego_alias}")
+        #print(f"aliases: {aliases}")
+        #print(f"ego_alias: {ego_alias}")
 
         fixed_bindings: Dict[str, int] = {}
         reduced_obj_spec = query_spec.objects
@@ -128,9 +130,11 @@ class QueryCompiler:
             reduced_obj_spec = _AliasOnly(filtered_aliases)
 
         if getattr(query_spec, 'use_combinations', False):
-            object_assignments = generate_object_combinations(self.df, reduced_obj_spec)
+            object_assignments = generate_object_combinations(
+                self.df, reduced_obj_spec, self.dataset_name)
         else:
-            object_assignments = generate_object_assignments(self.df, reduced_obj_spec)
+            object_assignments = generate_object_assignments(
+                self.df, reduced_obj_spec, self.dataset_name)
 
         # Merge fixed ego bindings into each assignment
         if fixed_bindings:
@@ -142,7 +146,7 @@ class QueryCompiler:
         if fixed_bindings and not object_assignments:
             object_assignments = [fixed_bindings.copy()]
         
-        print(f"[DEBUG] object_assignments: {object_assignments}")
+        # print(f"[DEBUG] object_assignments: {object_assignments}")
 
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
@@ -150,12 +154,11 @@ class QueryCompiler:
             # Find the time range where all assigned objects exist
             time_range = find_common_time_range(self.df, assignment)
             if time_range is None:
-                print("  → No overlapping time range, skipping")
+                # print("[DEBUG]  → No overlapping time range, skipping")
                 continue
             
             min_frame, max_frame = time_range
-            # no verbose printing; progress is shown via tqdm
-            
+                        
             # ------------------------------------------------------------------
             #  Stage 1 – collect candidates
             # ------------------------------------------------------------------

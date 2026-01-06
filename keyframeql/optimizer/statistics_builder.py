@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class KeyframeQLStatisticsBuilder:
@@ -292,7 +292,7 @@ class KeyframeQLStatisticsBuilder:
             "pairwise_distance_histogram": pairwise_hist,
             "ego_to_agent_distance_histogram": ego_to_agent_hist,
             "ego": ego_meta,                     # histograms + summary only
-            "last_updated": datetime.utcnow().isoformat(),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         return self
 

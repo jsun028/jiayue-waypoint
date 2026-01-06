@@ -322,7 +322,7 @@ class TestIntegrationWithVisualization:
     
     def test_dataframe_compatible_with_viz(self):
         """Test that generated DataFrame is compatible with nuscene_traj_viz."""
-        from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
+        from dataset_specific.nuscene.nuscene_traj_viz import plot_bev_snapshot
         import matplotlib.pyplot as plt
         
         scenario = create_scenario(seed=42, duration_sec=2.5)

@@ -8,7 +8,8 @@ from loguru import logger
 from keyframeql.registry import UDFRegistry
 from keyframeql.compiler import QueryCompiler
 
-from dataset_specific.nuscene.viz import _write_results_json, _generate_visualizations
+from dataset_specific.nuscene.viz import _generate_visualizations
+from keyframeql.utils.io import _write_results_json
 from keyframeql.specs import print_spec_details, QuerySpec
 
 
@@ -18,7 +19,7 @@ logger.add("runs.log", rotation="1 week")
 def example_usage(spec_path, data_path, coverage: float | None = None, track_stats: bool = True, 
     out_path: str | None = None, do_viz: bool = False, viz_dir: str | None = None, limit: int | None = None, 
     dedup_threshold: float | None = None, metadata_path: str | None = None, estimation_mode: bool = False,
-    slider_setting: str = "medium"):
+    slider_setting: str = "medium", dataset: str = "nuscene"):
 
     # Sample data
     df = pd.read_csv(data_path)
@@ -51,7 +52,8 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
     compiler = QueryCompiler(
         registry=registry, df=df, logger=logger, 
         coverage=coverage, track_stats=track_stats, dedup_threshold=dedup_threshold, limit=limit, 
-        metadata_path=metadata_path, slider_setting=slider_setting)
+        metadata_path=metadata_path, slider_setting=slider_setting,
+        dataset=dataset)
     # Execute query with two-stage search
     results = compiler.execute_query(spec, estimation_mode=estimation_mode)
     for result in results:
@@ -74,6 +76,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=str, required=True)
     parser.add_argument("--data", type=str, required=True)
+    parser.add_argument("--dataset", type=str, default='nuscene', required=True, help="Name of dataset (nuscene, virat...)")
     parser.add_argument("--coverage", type=float, default=1.0, help="Fraction of frames to scan (0-1]")
     parser.add_argument("--track-stats", action="store_true", help="Enable predicate selectivity stats")
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
@@ -101,5 +104,6 @@ if __name__ == "__main__":
         metadata_path=args.metadata_path,
         estimation_mode=args.estimation_mode,
         slider_setting=args.slider_setting,
+        dataset=args.dataset
     )
 

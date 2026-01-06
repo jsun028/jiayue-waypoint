@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from keyframeql.specs import print_spec_details
-from keyframeql.utils.data_loading import find_data_files
+from keyframeql.utils.io import find_data_files
 from stats_prompt import format_stats_for_prompt
 from loguru import logger
 logger.add("nl_dspy_runs.log", rotation="1 week")
