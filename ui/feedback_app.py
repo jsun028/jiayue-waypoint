@@ -18,7 +18,7 @@ from keyframeql.utils.io import find_data_files
 
 # Page config
 st.set_page_config(
-    page_title="Keyframe Query Result Viewer",
+    page_title="Query Result Viewer",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -88,11 +88,11 @@ def main():
     
     results_path = st.sidebar.text_input(
         "Results pickle path",
-        value="viz_out/raw/results.pkl"
+        value="search_results.pkl"
     )
     spec_path = st.sidebar.text_input(
         "Spec pickle path",
-        value="car_stop_for_ped.pkl"
+        value="nuscene_turning.pkl"
     )
     df_path = st.sidebar.text_input(
         "DataFrame path",

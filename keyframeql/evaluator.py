@@ -345,9 +345,7 @@ class QueryEvaluator:
         # Extract cross-anchored constraints
         cross_anchored_constraints = []
         for constraint in constraints:
-            if constraint.kind in ["interframe", "eventually"] and hasattr(constraint, 'anchor') and constraint.anchor is not None:
-                cross_anchored_constraints.append(constraint)
-            elif constraint.kind == "always" and constraint.anchor is not None:
+            if constraint.kind in ["interframe"] and hasattr(constraint, 'anchor') and constraint.anchor is not None:
                 cross_anchored_constraints.append(constraint)
         
         # Evaluate each cross-constraint
@@ -373,7 +371,6 @@ class QueryEvaluator:
         
         Returns:
             float: Score in [0.0, 1.0] representing constraint satisfaction.
-                   For 'always': fraction of frames in the duration window that satisfy the target.
                    For 'interframe': 1.0 if timing matches, 0.0 otherwise (binary for now).
         """
         
@@ -405,32 +402,6 @@ class QueryEvaluator:
                     pass
             
             return 1.0
-        
-        elif constraint.kind == "always" and constraint.anchor is not None:
-            # Cross-anchored always: check that target keyframe holds for duration after anchor
-            anchor_pos = positions.get(constraint.anchor)
-            target_pos = positions.get(constraint.target)
-            
-            if anchor_pos is None or target_pos is None:
-                if hasattr(self, 'reject_counters'):
-                    self.reject_counters['cross_always'] += 1
-                return 0.0
-            
-            # The target should be satisfied for the duration starting from anchor
-            duration_frames = self.seconds_to_frames(constraint.duration_sec)
-            always_window = (anchor_pos, anchor_pos + duration_frames)
-            
-            target_kf = keyframes_dict.get(constraint.target)
-            if target_kf:
-                # Returns fractional score: fraction of frames in the window that satisfy target
-                score = self.evaluate_keyframe_with_binding(target_kf, always_window, object_assignment)
-                if score == 0.0 and hasattr(self, 'reject_counters'):
-                    self.reject_counters['cross_always'] += 1
-                return score  # Return the fractional score (0.0-1.0)
-            
-            if hasattr(self, 'reject_counters'):
-                self.reject_counters['cross_always'] += 1
-            return 0.0
         
         return 0.0
     

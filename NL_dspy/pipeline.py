@@ -26,9 +26,7 @@ PROMPT_HEADER = """TASK: Translate traffic scene descriptions into JSON specs fo
 - Name keyframes k1, k2, k3, ... in temporal order.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
-- For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
-- Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
-- Ego pose is represented by dedicated rows where class_name=="ego"; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
+- Ego vehicle is a dedicated class that is represented by class_name=="ego"
 
 PREDICATE SYSTEM: 
 
@@ -96,8 +94,9 @@ Types:
 - always: Predicate holds continuously for duration
   * Self-anchored: {"kind":"always", "anchor": null, "target": "kX", "duration_sec": D}
     - Interpreted as: when evaluating keyframe kX at frame t, kX must hold continuously on [t, t+D].
-  * Cross-anchored: {"kind":"always", "anchor": "kA", "target": "kB", "duration_sec": D}
-    - Interpreted as: after kA occurs at frame tA, kB must be satisfied for all frames in [tA, tA+D].
+  * By default, add a self-anchored always constraint with a duration of 1 second for every keyframe. 
+    This make sure that the predicates in the keyframe can be evaluated with some temporal consistency.
+    For very sudden or long lasting events, this duration can be adjusted accordingly. 
 - interframe:
   * {"kind":"interframe", "anchor": "kA", "target": "kB", "time_shift": S, "comparators": []}
     - Interpreted as: the time difference between kA and kB is approximately S seconds.
@@ -632,8 +631,6 @@ class NLToQuerySpecPipeline(dspy.Module):
         Constraint interpretation in downstream compiler:
         - Self-anchored always: target keyframe must remain true over a contiguous window of
           duration_sec starting at the candidate frame for that keyframe.
-        - Cross-anchored always: when anchor keyframe occurs at frame tA, target must hold for all
-          frames in [tA, tA + duration_sec].
         - Interframe: target should occur approximately time_shift seconds after anchor, within
           ±0.1s tolerance (comparators are currently ignored).
         - Keyframes are enforced to be strictly increasing in time; extreme gaps are rejected.

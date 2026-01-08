@@ -603,7 +603,7 @@ def {name}(*args, **kwargs) -> float:
         return pd.Series(diff, index=common.index)
     
     def rotational_velocity(self, object_id: int, frame_window: Tuple[int, int]) -> pd.Series:
-        """Compute rotational velocity (yaw rate) for an object.
+        """Compute rotational velocity (yaw rate in degrees) for an object.
         
         Args:
             object_id: Track identifier.

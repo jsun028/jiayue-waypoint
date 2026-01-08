@@ -52,8 +52,7 @@ class QueryCompiler:
             'not_all_keyframes': 0,
             'time_order': 0,
             'gap': 0,
-            'interframe': 0,
-            'cross_always': 0,
+            'interframe': 0
         }
         if self.track_stats:
             self.predicate_stats = {}
@@ -61,8 +60,7 @@ class QueryCompiler:
                 'not_all_keyframes': 0,
                 'time_order': 0,
                 'gap': 0,
-                'interframe': 0,
-                'cross_always': 0,
+                'interframe': 0
             }
         
     def seconds_to_frames(self, seconds: float) -> int:
@@ -91,8 +89,7 @@ class QueryCompiler:
                 'not_all_keyframes': 0,
                 'time_order': 0,
                 'gap': 0,
-                'interframe': 0,
-                'cross_always': 0,
+                'interframe': 0
             }
         
         # Convert keyframes list to dict for easier lookup
@@ -167,8 +164,6 @@ class QueryCompiler:
             candidate_frames = self.stage1_per_keyframe_scan(
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
-
-            # print(f"candidate_frames: {candidate_frames}")
             
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
@@ -371,7 +366,7 @@ class QueryCompiler:
         # Separate constraints by type
         self_anchored_always = {}
         
-        # For holding self-anchored always constraints (e.g. "always k1")
+        # For holding self-anchored always (duration) constraints (e.g. "always k1")
         for constraint in constraints:
             if constraint.kind == "always" and constraint.anchor is None:
                 self_anchored_always[constraint.target] = constraint
@@ -395,14 +390,16 @@ class QueryCompiler:
                 continue
             if self.coverage <= 0.0:
                 continue
-            stride = max(1, int(round(1.0 / self.coverage)))
+            # Stride: minimial of 0.5 sec or specificied coverage percentage
+            stride = min(int(self.seconds_to_frames(1) / 2) + 1, 
+                         int(round(1.0 / self.coverage)))
             scores_dist = []
             for frame_idx in range(min_frame, max_frame + 1, stride):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
                 # Single frame window by default
                 frame_window = (frame_idx, frame_idx)  
-                # Evaluate self-anchored ALWAYS constraint
+                # Evaluate self-anchored ALWAYS (duration) constraint
                 if kf_name in self_anchored_always:
                     always_constraint = self_anchored_always[kf_name]
                     duration_frames = self.seconds_to_frames(always_constraint.duration_sec)

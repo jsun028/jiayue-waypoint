@@ -106,7 +106,7 @@ if __name__ == "__main__":
 
 
     dataset_dir = Path(args.dataset_dir).resolve()
-    data_files = find_data_files(dataset_dir, args.pattern, False, 10)
+    data_files = find_data_files(dataset_dir, args.pattern, False, None)
     if not data_files:
         print("No data files found. Nothing to do.")
         exit(1)
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     
     # Plot top-k before reranking
     # plot_top_k(top_results, data_files, "viz_out/raw/", 5)
-    with open('viz_out/raw/results.pkl', 'wb') as f:
+    with open('search_results.pkl', 'wb') as f:
         pickle.dump(top_results, f)
 
     # with open('viz_out/raw/results.pkl', 'rb') as f:
