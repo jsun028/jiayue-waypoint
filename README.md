@@ -10,6 +10,10 @@ pip install -r requirements.txt
 
 
 
+### 📥 Data Preparation
+1. Download Dataset: Download the virat traffic dataset from [Google Drive](https://drive.google.com/file/d/1DIy0NOBPTnRaDsnqSl-o1e3vAeFfM3Kz/view?usp=sharing) and place it in the `videos/virat/` folder.
+
+
 ## How to run 
 
 ### UI (Streamlit) 
