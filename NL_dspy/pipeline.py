@@ -26,9 +26,7 @@ PROMPT_HEADER = """TASK: Translate traffic scene descriptions into JSON specs fo
 - Name keyframes k1, k2, k3, ... in temporal order.
 - Use object aliases (car1, car2, pedestrian1, ...) unless NL input specifies otherwise.
 - Use degrees for angles unless NL explicitly requests radians.
-- For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
-- Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
-- Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
+- Ego vehicle is a dedicated class that is represented by class_name=="ego"
 
 PREDICATE SYSTEM: 
 
@@ -56,6 +54,17 @@ Example patterns:
 JSON format:
 {"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 5.0}
 
+CONSTRUCTION GUIDE
+- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
+- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
+- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
+- "other_obj" field: for pairwise predicates, use second object alias
+- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
+- Map function parameters to PredicateAtom fields as shown in each spec line
+
+Available predicates (each shows function signature and PredicateAtom construction):
+{available_udfs}
+
 DISCRETE SLIDERS
 
 Use DiscreteSlider objects for numeric parameters (value, tol) to enable runtime tuning.
@@ -78,16 +87,6 @@ Ask: "Does a LARGER number make the predicate EASIER to satisfy?"
 - Easier → ascending values (low < medium < high)
 - Harder → descending values (low > medium > high)
 
-CONSTRUCTION GUIDE
-- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
-- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
-- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
-- "other_obj" field: for pairwise predicates, use second object alias
-- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
-- Map function parameters to PredicateAtom fields as shown in each spec line
-
-Available predicates (each shows function signature and PredicateAtom construction):
-{available_udfs}
 
 CONSTRAINTS
 
@@ -95,8 +94,9 @@ Types:
 - always: Predicate holds continuously for duration
   * Self-anchored: {"kind":"always", "anchor": null, "target": "kX", "duration_sec": D}
     - Interpreted as: when evaluating keyframe kX at frame t, kX must hold continuously on [t, t+D].
-  * Cross-anchored: {"kind":"always", "anchor": "kA", "target": "kB", "duration_sec": D}
-    - Interpreted as: after kA occurs at frame tA, kB must be satisfied for all frames in [tA, tA+D].
+  * By default, add a self-anchored always constraint with a duration of 1 second for every keyframe. 
+    This make sure that the predicates in the keyframe can be evaluated with some temporal consistency.
+    For very sudden or long lasting events, this duration can be adjusted accordingly. 
 - interframe:
   * {"kind":"interframe", "anchor": "kA", "target": "kB", "time_shift": S, "comparators": []}
     - Interpreted as: the time difference between kA and kB is approximately S seconds.
@@ -112,14 +112,11 @@ Other guidance:
 
 CRITICAL - Avoiding Over-Constrained Queries:
 - Each predicate multiplies selectivity - more predicates = exponentially fewer matches
+- If a spec has N keyframes, the probability of finding a match is roughly P₁ × P₂ × ... × Pₙ where each Pᵢ < 1
 - EARLY keyframes (k1) should be SIMPLER and BROADER to ensure matches exist before refining
-- Limit k1 to 3 predicates maximum; use the most essential conditions only
 - For multi-keyframe specs (3+), keep each keyframe to 2-3 predicates
 - Use BROAD slider ranges in early keyframes: "high" value should be quite permissive
 - Angle tolerances: use at least ±15-30° tolerance in "medium" setting
-- Avoid combining multiple geometric predicates (heading + visibility + distance) in k1
-- Build narrative progression: k1 = setup (broad), k2 = development (medium), k3 = climax (tighter)
-- If a spec has N keyframes, the probability of finding a match is roughly P₁ × P₂ × ... × Pₙ where each Pᵢ < 1
 """
 
 
@@ -419,8 +416,49 @@ def _format_available_udfs_for_prompt(available_udfs: Iterable[object]) -> list[
     return sorted(formatted)
 
 
-# Note: format_stats_for_prompt is imported from NL_dspy.stats_prompt
+@dataclass
+class SpecSession:
+    """Tracks conversation history for iterative refinement."""
+    nl_request: str
+    history: list[dict]  # [{"spec": QuerySpec, "spec_json": str, "feedback": str}]
+    current_spec: Optional[QuerySpec] = None
+    current_spec_json: Optional[str] = None
+    
+    def add_iteration(self, spec: QuerySpec, spec_json: str, feedback: Optional[str] = None):
+        """Record a refinement iteration."""
+        self.history.append({
+            "spec": spec,
+            "spec_json": spec_json,
+            "feedback": feedback
+        })
+        self.current_spec = spec
+        self.current_spec_json = spec_json
 
+def start_session(nl_request: str, pipeline: Optional[NLToQuerySpecPipeline] = None, 
+                  stats_text: Optional[str] = None) -> SpecSession:
+    """Start a new spec generation session."""
+    pipeline = pipeline or build_pipeline()
+    
+    session = SpecSession(nl_request=nl_request, history=[])
+    spec = pipeline(nl_request, stats_text=stats_text, session=session)
+    
+    return session
+
+
+def refine_spec(session: SpecSession, feedback: str, 
+                pipeline: Optional[NLToQuerySpecPipeline] = None,
+                stats_text: Optional[str] = None) -> QuerySpec:
+    """Refine the current spec based on user feedback."""
+    pipeline = pipeline or build_pipeline()
+    
+    spec = pipeline(
+        session.nl_request, 
+        stats_text=stats_text,
+        session=session,
+        feedback=feedback
+    )
+    
+    return spec
 
 class SpecGenerator(dspy.Module):
     """Generate a raw JSON string spec using a single DSPy predictor."""
@@ -441,8 +479,11 @@ class SpecGenerator(dspy.Module):
         nl_request: str,
         available_udfs: Iterable[str],
         *,
-        stats_text: Optional[str] = None
+        stats_text: Optional[str] = None,
+        previous_spec: Optional[str] = None,  # NEW
+        feedback: Optional[str] = None,       # NEW
     ) -> str:
+        
         # TODO: We can probably make this an optimizer task (like GEPA)
         formatted = sorted(available_udfs)
         if formatted:
@@ -457,14 +498,34 @@ class SpecGenerator(dspy.Module):
             if stats_text
             else ""
         )
+        
+        # Add refinement context if this is an iteration
+        refinement_context = ""
+        if previous_spec and feedback:
+            refinement_context = (
+                f"\n\n=== REFINEMENT MODE ===\n"
+                f"You previously generated this spec:\n{previous_spec}\n\n"
+                f"User feedback:\n{feedback}\n\n"
+                f"Modify the spec to address the feedback while preserving aspects that weren't criticized. "
+                f"Return the complete updated JSON spec.\n"
+                f"=== END REFINEMENT CONTEXT ===\n"
+            )
+        
+        base_instruction = (
+            "Now respond to the new request. Return JSON ONLY. Follow the GOOD pattern, avoid the BAD pattern."
+            if not refinement_context
+            else "Return the complete refined JSON spec addressing the feedback."
+        )
+        
         return (
             f"{header}\n\n"
             f"GOOD EXAMPLE - NL description:\n{FEWSHOT_USER}\n\n"
             f"GOOD EXAMPLE - JSON spec (FOLLOW THIS PATTERN):\n{fewshot_good}\n\n"
             f"BAD EXAMPLE - Over-constrained spec (AVOID THIS PATTERN):\n{fewshot_bad}"
-            f"{stats_block}\n\n"
-            "Now respond to the new request. Return JSON ONLY. Follow the GOOD pattern, avoid the BAD pattern."
-            f"\n\nUser request:\n{nl_request}\n"
+            f"{stats_block}"
+            f"{refinement_context}\n\n"
+            f"{base_instruction}"
+            f"\n\nOriginal user request:\n{nl_request}\n"
         )
 
     def forward(
@@ -473,8 +534,16 @@ class SpecGenerator(dspy.Module):
         available_udfs: Iterable[str],
         *,
         stats_text: Optional[str] = None,
+        previous_spec: Optional[str] = None,  
+        feedback: Optional[str] = None,     
     ):
-        prompt = self._compose_prompt(nl_request, available_udfs, stats_text=stats_text)
+        prompt = self._compose_prompt(
+            nl_request, 
+            available_udfs, 
+            stats_text=stats_text,
+            previous_spec=previous_spec,
+            feedback=feedback
+        )
         self._log("Submitting prompt to language model...\n\n"+prompt)
         prediction = self.generator(prompt=prompt)
         self._log("Received raw response from language model")
@@ -554,21 +623,25 @@ class NLToQuerySpecPipeline(dspy.Module):
         available_udfs: Optional[Iterable[str]] = None,
         *,
         stats_text: Optional[str] = None,
+        session: Optional[SpecSession] = None,
+        feedback: Optional[str] = None
     ) -> QuerySpec:
         """Translate NL into a checked QuerySpec.
 
         Constraint interpretation in downstream compiler:
         - Self-anchored always: target keyframe must remain true over a contiguous window of
           duration_sec starting at the candidate frame for that keyframe.
-        - Cross-anchored always: when anchor keyframe occurs at frame tA, target must hold for all
-          frames in [tA, tA + duration_sec].
         - Interframe: target should occur approximately time_shift seconds after anchor, within
           ±0.1s tolerance (comparators are currently ignored).
         - Keyframes are enforced to be strictly increasing in time; extreme gaps are rejected.
         - If an alias with class "ego" is present, it is pre-bound to the ego track and excluded from
           object assignment enumeration.
         """
-        self._log("Starting NL → QuerySpec translation")
+        if session and feedback:
+            self._log(f"Refinement mode: iteration {len(session.history) + 1}")
+        else:
+            self._log("Starting NL → QuerySpec translation")
+
         if available_udfs is None:
             requested_udfs: list[object] = list(GLOBAL_UDF_REGISTRY.get_all_udfs().keys())
         else:
@@ -580,15 +653,25 @@ class NLToQuerySpecPipeline(dspy.Module):
         self._log(
             f"Using {len(available_names)} predicates: {', '.join(available_names)}"
         )
+
+        # NEW: Pass previous spec if refining
+        previous_spec = session.current_spec_json if session else None
+
         raw_json = self.generator(
             nl_request=nl_request,
             available_udfs=available_for_prompt,
             stats_text=stats_text,
+            previous_spec=previous_spec,
+            feedback=feedback,
         )
         self._log("Generation complete, parsing …")
         spec = self.parser(raw_json)
         self._log("Running semantic checks …")
         validated = self.semantic_checker(spec)
+        
+        if session:
+            session.add_iteration(validated, raw_json, feedback)
+
         self._log("Pipeline finished")
         return validated
 

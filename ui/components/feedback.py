@@ -16,7 +16,7 @@ def save_feedback(result_idx: int, feedback_data: dict):
     }
     
     # Append to JSONL file
-    with open("feedback/label_data/labels.jsonl", 'a') as f:
+    with open("ui/label_data/labels.jsonl", 'a') as f:
         f.write(json.dumps(feedback_entry) + '\n')
     
     st.success("✅ Feedback saved!")
@@ -28,14 +28,31 @@ def display_feedback_form(result_idx: int, result: dict,
     st.subheader("Scoring")
     
     kf_scores = result[1]['keyframe_scores']
+    constraint_scores = result[1]['cross_constraint_score']
     # Create columns - one for each keyframe
-    cols = st.columns(len(kf_scores) + 1)
+    cols = st.columns(len(kf_scores) + len(constraint_scores) + 1)
+    col_idx = 0
     with cols[0]:
         st.metric(label="aggregated", value=f"{result[1]['aggregate_score']:.2f}")
+        col_idx += 1
     # Display each keyframe score in its own column
-    for idx, (kf_name, score) in enumerate(kf_scores.items()):
-        with cols[idx+1]:
+    for kf_name, score in kf_scores.items():
+        with cols[col_idx]:
             st.metric(label=kf_name, value=f"{score:.2f}")
+            col_idx += 1
+    # Display each keyframe score in its own column
+    for c_name, score in constraint_scores.items():
+        with cols[col_idx]:
+            st.metric(label=c_name, value=f"{score:.2f}")
+            col_idx += 1
+    
+    # Show object assignment
+    st.subheader("Object Assignment")
+    assignment = result[1]["object_assignment"]
+    table_data = []
+    for alias in assignment:
+        table_data.append({"alias": alias, "track id": assignment[alias]})
+    st.dataframe(pd.DataFrame(table_data), hide_index=True)
     
     st.subheader("💬 Feedback")
 
@@ -81,17 +98,17 @@ def display_feedback_form(result_idx: int, result: dict,
             }
         )
 
-        kf_rating_map = {
-            "✅ Yes": 1.0,
-            "❌ No": 0.0,
-            "⚠️ Partial": 0.5
-        }
-        kf_rating = st.radio(
-            f"{active_kf} correct?",
-            ["✅ Yes", "❌ No", "⚠️ Partial"],
-            key=f"kf_feedback_{result_idx}_{active_kf}"
-        )
-        kf_feedback[active_kf] = kf_rating_map[kf_rating]
+        # kf_rating_map = {
+        #     "✅ Yes": 1.0,
+        #     "❌ No": 0.0,
+        #     "⚠️ Partial": 0.5
+        # }
+        # kf_rating = st.radio(
+        #     f"{active_kf} correct?",
+        #     ["✅ Yes", "❌ No", "⚠️ Partial"],
+        #     key=f"kf_feedback_{result_idx}_{active_kf}"
+        # )
+        # kf_feedback[active_kf] = kf_rating_map[kf_rating]
     
     # Comments
     comments = st.text_area(

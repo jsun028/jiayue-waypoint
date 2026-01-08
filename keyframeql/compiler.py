@@ -12,7 +12,7 @@ from keyframeql.specs import (
     KeyframeSpec,
     QuerySpec,
 )
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Literal
 from keyframeql.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
@@ -24,7 +24,9 @@ from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
-    metadata_path: str | None = None, slider_setting: str = "medium", debug: bool = False):
+        metadata_path: str | None = None, slider_setting: str = "medium", 
+        dataset: Literal["nuscene", "virat"] = "nuscene", 
+        debug: bool = False):
         self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
@@ -38,6 +40,7 @@ class QueryCompiler:
         self.coverage = max(0.0, min(1.0, coverage))
         self.dedup_threshold = dedup_threshold
         self.limit = limit
+        self.dataset_name = dataset
         # Query evaluator
         self.evaluator = QueryEvaluator(df, registry, self.fps, slider_setting, logger)
 
@@ -49,8 +52,7 @@ class QueryCompiler:
             'not_all_keyframes': 0,
             'time_order': 0,
             'gap': 0,
-            'interframe': 0,
-            'cross_always': 0,
+            'interframe': 0
         }
         if self.track_stats:
             self.predicate_stats = {}
@@ -58,8 +60,7 @@ class QueryCompiler:
                 'not_all_keyframes': 0,
                 'time_order': 0,
                 'gap': 0,
-                'interframe': 0,
-                'cross_always': 0,
+                'interframe': 0
             }
         
     def seconds_to_frames(self, seconds: float) -> int:
@@ -88,8 +89,7 @@ class QueryCompiler:
                 'not_all_keyframes': 0,
                 'time_order': 0,
                 'gap': 0,
-                'interframe': 0,
-                'cross_always': 0,
+                'interframe': 0
             }
         
         # Convert keyframes list to dict for easier lookup
@@ -102,8 +102,8 @@ class QueryCompiler:
         # Only one ego alias is expected; if present, pre-bind it and exclude from enumeration
         ego_alias = next((a for a, info in aliases.items() if info.get('class') == 'ego'), None)
 
-        # print(f"aliases: {aliases}")
-        # print(f"ego_alias: {ego_alias}")
+        #print(f"aliases: {aliases}")
+        #print(f"ego_alias: {ego_alias}")
 
         fixed_bindings: Dict[str, int] = {}
         reduced_obj_spec = query_spec.objects
@@ -128,9 +128,11 @@ class QueryCompiler:
             reduced_obj_spec = _AliasOnly(filtered_aliases)
 
         if getattr(query_spec, 'use_combinations', False):
-            object_assignments = generate_object_combinations(self.df, reduced_obj_spec)
+            object_assignments = generate_object_combinations(
+                self.df, reduced_obj_spec, self.dataset_name)
         else:
-            object_assignments = generate_object_assignments(self.df, reduced_obj_spec)
+            object_assignments = generate_object_assignments(
+                self.df, reduced_obj_spec, self.dataset_name)
 
         # Merge fixed ego bindings into each assignment
         if fixed_bindings:
@@ -142,7 +144,7 @@ class QueryCompiler:
         if fixed_bindings and not object_assignments:
             object_assignments = [fixed_bindings.copy()]
         
-        print(f"[DEBUG] object_assignments: {object_assignments}")
+        #print(f"[DEBUG] object_assignments: {object_assignments}")
 
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
@@ -150,20 +152,18 @@ class QueryCompiler:
             # Find the time range where all assigned objects exist
             time_range = find_common_time_range(self.df, assignment)
             if time_range is None:
-                print("  → No overlapping time range, skipping")
+                # print("[DEBUG]  → No overlapping time range, skipping")
                 continue
             
             min_frame, max_frame = time_range
-            # no verbose printing; progress is shown via tqdm
-            
+            # print("[DEBUG]  → Overlapping time range", assignment, time_range)
+
             # ------------------------------------------------------------------
             #  Stage 1 – collect candidates
             # ------------------------------------------------------------------
             candidate_frames = self.stage1_per_keyframe_scan(
                 keyframes_dict, query_spec.constraints, assignment, min_frame, max_frame
             )
-
-            # print(f"candidate_frames: {candidate_frames}")
             
             # Log candidate presence concisely
             candidate_summary = {kf: len(lst) for kf, lst in candidate_frames.items()}
@@ -244,23 +244,26 @@ class QueryCompiler:
                         continue
 
                 # Evaluate cross-constraints only if not overlapping
-                ok, cross_score, cross_score_details = self.evaluator.evaluate_cross_constraints(
+                ok, cross_score_details = self.evaluator.evaluate_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
 
                 if ok:
                     if self.dedup_threshold > 0.0:
                         self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
-                    # average per keyframe score
-                    final_score = np.average(list(individual_scores.values()))
-                    # TODO: figure out what to do with cross scores 
-                    final_score += cross_score
-                    score_details.update(cross_score_details)
+                    if len(cross_score_details) > 0:
+                        # Combine keyframe and cross constraint scores
+                        # Default: give more weights to keyframe scores
+                        final_score = 0.7 * np.average(list(individual_scores.values())) + \
+                            0.3 * np.average(list(cross_score_details.values()))
+                    else:
+                        # Use keyframe scores if there are no cross constraints
+                        final_score = np.average(list(individual_scores.values()))
                     valid_combinations.append({
                         'positions': positions,
                         'score': final_score,
-                        'individual_scores': individual_scores,
-                        'cross_constraint_score': cross_score,
+                        'kf_scores': individual_scores,
+                        'cross_constraint_score': cross_score_details,
                         'score_details': score_details
                     })
                 
@@ -274,7 +277,7 @@ class QueryCompiler:
                     'object_assignment': assignment,
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
-                    'keyframe_scores': combination['individual_scores'],
+                    'keyframe_scores': combination['kf_scores'],
                     'cross_constraint_score': combination['cross_constraint_score'],
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
@@ -363,7 +366,7 @@ class QueryCompiler:
         # Separate constraints by type
         self_anchored_always = {}
         
-        # For holding self-anchored always constraints (e.g. "always k1")
+        # For holding self-anchored always (duration) constraints (e.g. "always k1")
         for constraint in constraints:
             if constraint.kind == "always" and constraint.anchor is None:
                 self_anchored_always[constraint.target] = constraint
@@ -387,13 +390,16 @@ class QueryCompiler:
                 continue
             if self.coverage <= 0.0:
                 continue
-            stride = max(1, int(round(1.0 / self.coverage)))
+            # Stride: minimial of 0.5 sec or specificied coverage percentage
+            stride = min(int(self.seconds_to_frames(1) / 2) + 1, 
+                         int(round(1.0 / self.coverage)))
+            scores_dist = []
             for frame_idx in range(min_frame, max_frame + 1, stride):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
                 # Single frame window by default
                 frame_window = (frame_idx, frame_idx)  
-                # Evaluate self-anchored ALWAYS constraint
+                # Evaluate self-anchored ALWAYS (duration) constraint
                 if kf_name in self_anchored_always:
                     always_constraint = self_anchored_always[kf_name]
                     duration_frames = self.seconds_to_frames(always_constraint.duration_sec)
@@ -429,6 +435,7 @@ class QueryCompiler:
                             self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
                 score = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
+                scores_dist.append(atom_score)
                 if score > 0:
                     frame_candidates.append((frame_idx, score, atom_scores))
             

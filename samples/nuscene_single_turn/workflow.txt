@@ -1,0 +1,5 @@
+A car makes a turn. 
+
+The turn should be pretty noticable. 
+
+python3 topk_main.py --spec nuscene_turn.pkl --dataset-dir dataset/nuscene --dataset nuscene --slider-setting medium --coverage 0.1 --track-stats --limit 5 --dedup-threshold 0.15 --viz-dir viz_out/

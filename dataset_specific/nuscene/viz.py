@@ -1,32 +1,7 @@
-from keyframeql.utils.nuscene_traj_viz import plot_bev_snapshot
+from .nuscene_traj_viz import plot_bev_snapshot
 from pathlib import Path
-import json
 import pandas as pd
 from loguru import logger
-
-def _coerce_jsonable(obj):
-    if isinstance(obj, (int, float, str)) or obj is None:
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_coerce_jsonable(x) for x in obj]
-    if isinstance(obj, dict):
-        return {str(k): _coerce_jsonable(v) for k, v in obj.items()}
-    try:
-        # numpy, pandas scalars
-        import numpy as np  # type: ignore
-        if isinstance(obj, (np.generic,)):
-            return obj.item()
-    except Exception:
-        pass
-    try:
-        return json.loads(json.dumps(obj))
-    except Exception:
-        return str(obj)
-
-def _write_results_json(results, out_path: str) -> None:
-    safe = [_coerce_jsonable(r) for r in results]
-    with open(out_path, "w") as f:
-        json.dump(safe, f, indent=2, sort_keys=True)
 
 def _generate_visualizations(df: pd.DataFrame, results: list[dict], out_dir: Path, 
                              fps: int = 10, top_k: int | None = None, fname: str | None = None) -> None:

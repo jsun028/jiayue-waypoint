@@ -1,17 +1,26 @@
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 from itertools import combinations, product
 
-def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
+def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]],
+                                dataset: Literal["nuscene", "virat"]) -> List[Dict[str, int]]:
     """Generate all possible assignments of object aliases to actual tracks"""
 
     # Class name mapping: map query spec class names to dataset class names
     class_name_mapping = {
-        'car': 'vehicle',
-        'person': 'pedestrian',
-        'bike': 'bicycle',
-        'motorcycle': 'motorcycle',
-        'ego': 'ego',
+        'nuscene': {
+            'car': 'vehicle',
+            'person': 'pedestrian',
+            'bike': 'bicycle',
+            'motorcycle': 'motorcycle'
+        },
+        'virat': {
+            'car': 'car',
+            'truck': 'truck',
+            'person': 'person',
+            'stop sign': 'stop sign',
+            'bike': 'bicycle'
+        }
     }
 
     # Get available tracks for each object class
@@ -20,7 +29,7 @@ def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]
         obj_class = obj_spec.aliases[alias]['class']
         if obj_class not in tracks_by_class:
             # Map query spec class name to dataset class name
-            dataset_class = class_name_mapping.get(obj_class, obj_class)
+            dataset_class = class_name_mapping[dataset].get(obj_class, obj_class)
             tracks_by_class[obj_class] = \
                 df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
 
@@ -99,7 +108,8 @@ def find_common_time_range(df: pd.DataFrame, object_assignment: Dict[str, int]) 
     else:
         return None  # No overlap
 
-def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
+def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]], 
+            dataset: Literal["nuscene", "virat"]) -> List[Dict[str, int]]:
     """Generate assignments using combinations per class (not permutations across aliases).
 
     For each object class, choose combinations of distinct tracks of size equal to the
@@ -109,10 +119,19 @@ def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]
 
     # Class name mapping: map query spec class names to dataset class names
     class_name_mapping = {
-        'car': 'vehicle',
-        'person': 'pedestrian',
-        'bike': 'bicycle',
-        'motorcycle': 'motorcycle'
+        'nuscene': {
+            'car': 'vehicle',
+            'person': 'pedestrian',
+            'bike': 'bicycle',
+            'motorcycle': 'motorcycle'
+        },
+        'virat': {
+            'car': 'car',
+            'truck': 'truck',
+            'person': 'person',
+            'stop sign': 'stop sign',
+            'bike': 'bicycle'
+        }
     }
 
     # Build available tracks per class and record aliases per class (preserving alias order)
@@ -126,7 +145,7 @@ def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]
         aliases_by_class[obj_class].append(alias)
 
         if obj_class not in tracks_by_class:
-            dataset_class = class_name_mapping.get(obj_class, obj_class)
+            dataset_class = class_name_mapping[dataset].get(obj_class, obj_class)
             tracks_by_class[obj_class] = \
                 df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
 
