@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dump-pickle",
         default=None,
-        help="Optional path to write the QuerySpec pickle (compatible with NL/main.py).",
+        help="Optional path to write the QuerySpec pickle.",
     )
     stats = parser.add_argument_group("dataset statistics")
     stats.add_argument(
@@ -128,7 +128,8 @@ def main() -> None:
 
     logger.info(f"Raw JSON: {json.dumps(json.loads(result.spec_json), indent=2)}")
 
-    print_spec_details(result.spec)
+    details = print_spec_details(result.spec)
+    print(details)
 
     if args.dump_pickle:
         write_spec_pickle(result.spec, args.dump_pickle)
