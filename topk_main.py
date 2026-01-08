@@ -126,7 +126,7 @@ if __name__ == "__main__":
     )
     
     # Plot top-k before reranking
-    plot_top_k(top_results, data_files, "viz_out/raw/", 5)
+    # plot_top_k(top_results, data_files, "viz_out/raw/", 5)
     with open('viz_out/raw/results.pkl', 'wb') as f:
         pickle.dump(top_results, f)
 

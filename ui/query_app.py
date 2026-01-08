@@ -202,7 +202,6 @@ def main():
             
             with tab2:
                 # Show structured details
-                
                 st.write(f"**Keyframes:** ({len(spec.keyframes)} total)")
                 for kf in spec.keyframes:
                     with st.expander(f"🔑 {kf.name}"):

@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 from itertools import combinations, product
 
 def generate_object_assignments(df: pd.DataFrame, obj_spec: Dict[str, List[str]]) -> List[Dict[str, int]]:
@@ -100,7 +100,7 @@ def find_common_time_range(df: pd.DataFrame, object_assignment: Dict[str, int]) 
         return None  # No overlap
 
 def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]], 
-            dataset_name: str) -> List[Dict[str, int]]:
+            dataset: Literal["nuscenes", "virat"]) -> List[Dict[str, int]]:
     """Generate assignments using combinations per class (not permutations across aliases).
 
     For each object class, choose combinations of distinct tracks of size equal to the
@@ -137,7 +137,7 @@ def generate_object_combinations(df: pd.DataFrame, obj_spec: Dict[str, List[str]
         aliases_by_class[obj_class].append(alias)
 
         if obj_class not in tracks_by_class:
-            dataset_class = class_name_mapping[dataset_name].get(obj_class, obj_class)
+            dataset_class = class_name_mapping[dataset].get(obj_class, obj_class)
             tracks_by_class[obj_class] = \
                 df[df['class_name'] == dataset_class]['track_id'].unique().tolist()
 

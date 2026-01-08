@@ -12,7 +12,7 @@ from keyframeql.specs import (
     KeyframeSpec,
     QuerySpec,
 )
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Literal
 from keyframeql.df_utils import (
     generate_object_assignments,
     generate_object_combinations,
@@ -25,7 +25,8 @@ from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
         metadata_path: str | None = None, slider_setting: str = "medium", 
-        dataset: str = "nuscene", debug: bool = False):
+        dataset: Literal["nuscenes", "virat"] = "nuscenes", 
+        debug: bool = False):
         self.debug = debug
         self.df = df
         self.fps = 10  # Assume 10 FPS, adjust as needed
@@ -146,7 +147,7 @@ class QueryCompiler:
         if fixed_bindings and not object_assignments:
             object_assignments = [fixed_bindings.copy()]
         
-        # print(f"[DEBUG] object_assignments: {object_assignments}")
+        #print(f"[DEBUG] object_assignments: {object_assignments}")
 
         # For each possible object assignment, perform two-stage search
         for assignment_idx, assignment in enumerate(tqdm(object_assignments, desc="Assignments", unit="assign")):
@@ -158,7 +159,8 @@ class QueryCompiler:
                 continue
             
             min_frame, max_frame = time_range
-                        
+            # print("[DEBUG]  → Overlapping time range", assignment, time_range)
+
             # ------------------------------------------------------------------
             #  Stage 1 – collect candidates
             # ------------------------------------------------------------------
@@ -247,23 +249,22 @@ class QueryCompiler:
                         continue
 
                 # Evaluate cross-constraints only if not overlapping
-                ok, cross_score, cross_score_details = self.evaluator.evaluate_cross_constraints(
+                ok, cross_score_details = self.evaluator.evaluate_cross_constraints(
                     positions, keyframes_dict, query_spec.constraints, assignment
                 )
 
                 if ok:
                     if self.dedup_threshold > 0.0:
                         self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
-                    # average per keyframe score
-                    final_score = np.average(list(individual_scores.values()))
-                    # TODO: figure out what to do with cross scores 
-                    final_score += cross_score
-                    score_details.update(cross_score_details)
+                    # Combine keyframe and cross constraint scores
+                    # Default: give more weights to keyframe scores
+                    final_score = 0.7 * np.average(list(individual_scores.values())) + \
+                        0.3 * np.average(list(cross_score_details.values()))
                     valid_combinations.append({
                         'positions': positions,
                         'score': final_score,
-                        'individual_scores': individual_scores,
-                        'cross_constraint_score': cross_score,
+                        'kf_scores': individual_scores,
+                        'cross_constraint_score': cross_score_details,
                         'score_details': score_details
                     })
                 
@@ -277,7 +278,7 @@ class QueryCompiler:
                     'object_assignment': assignment,
                     'keyframe_positions': combination['positions'],
                     'aggregate_score': combination['score'],
-                    'keyframe_scores': combination['individual_scores'],
+                    'keyframe_scores': combination['kf_scores'],
                     'cross_constraint_score': combination['cross_constraint_score'],
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
@@ -391,6 +392,7 @@ class QueryCompiler:
             if self.coverage <= 0.0:
                 continue
             stride = max(1, int(round(1.0 / self.coverage)))
+            scores_dist = []
             for frame_idx in range(min_frame, max_frame + 1, stride):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
@@ -432,6 +434,7 @@ class QueryCompiler:
                             self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
                 score = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
+                scores_dist.append(atom_score)
                 if score > 0:
                     frame_candidates.append((frame_idx, score, atom_scores))
             

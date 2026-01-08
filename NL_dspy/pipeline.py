@@ -28,7 +28,7 @@ PROMPT_HEADER = """TASK: Translate traffic scene descriptions into JSON specs fo
 - Use degrees for angles unless NL explicitly requests radians.
 - For "right turn" events, you may add a trajectory constraint with template="right_arc" (optional guidance only).
 - Set use_combinations=true to assign unique sets of tracks per class (ignore alias permutations).
-- Ego pose is represented by dedicated rows where class_name=="ego" or track_id==0; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
+- Ego pose is represented by dedicated rows where class_name=="ego"; if you include an alias with class "ego", it refers to that track and is pre-bound by the engine (not enumerated).
 
 PREDICATE SYSTEM: 
 
@@ -56,6 +56,17 @@ Example patterns:
 JSON format:
 {"type": "GreaterThan", "computation": {"type": "velocity", "obj": "car1"}, "value": 5.0}
 
+CONSTRUCTION GUIDE
+- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
+- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
+- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
+- "other_obj" field: for pairwise predicates, use second object alias
+- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
+- Map function parameters to PredicateAtom fields as shown in each spec line
+
+Available predicates (each shows function signature and PredicateAtom construction):
+{available_udfs}
+
 DISCRETE SLIDERS
 
 Use DiscreteSlider objects for numeric parameters (value, tol) to enable runtime tuning.
@@ -78,16 +89,6 @@ Ask: "Does a LARGER number make the predicate EASIER to satisfy?"
 - Easier → ascending values (low < medium < high)
 - Harder → descending values (low > medium > high)
 
-CONSTRUCTION GUIDE
-- Each predicate shows "Spec: PredicateAtom(...)" indicating how to build it
-- Parameters in angle brackets (e.g., <velocity>) should be replaced with actual values. (e.g. in dist_within_two_obj(), value=<distance>, value is a key and distance is a value)
-- "obj" field: use object alias from your spec (e.g., "car1", "pedestrian1")
-- "other_obj" field: for pairwise predicates, use second object alias
-- "frame_window" is handled automatically by the query engine (set to None in PredicateAtom)
-- Map function parameters to PredicateAtom fields as shown in each spec line
-
-Available predicates (each shows function signature and PredicateAtom construction):
-{available_udfs}
 
 CONSTRAINTS
 
@@ -112,14 +113,11 @@ Other guidance:
 
 CRITICAL - Avoiding Over-Constrained Queries:
 - Each predicate multiplies selectivity - more predicates = exponentially fewer matches
+- If a spec has N keyframes, the probability of finding a match is roughly P₁ × P₂ × ... × Pₙ where each Pᵢ < 1
 - EARLY keyframes (k1) should be SIMPLER and BROADER to ensure matches exist before refining
-- Limit k1 to 3 predicates maximum; use the most essential conditions only
 - For multi-keyframe specs (3+), keep each keyframe to 2-3 predicates
 - Use BROAD slider ranges in early keyframes: "high" value should be quite permissive
 - Angle tolerances: use at least ±15-30° tolerance in "medium" setting
-- Avoid combining multiple geometric predicates (heading + visibility + distance) in k1
-- Build narrative progression: k1 = setup (broad), k2 = development (medium), k3 = climax (tighter)
-- If a spec has N keyframes, the probability of finding a match is roughly P₁ × P₂ × ... × Pₙ where each Pᵢ < 1
 """
 
 
@@ -486,6 +484,7 @@ class SpecGenerator(dspy.Module):
         previous_spec: Optional[str] = None,  # NEW
         feedback: Optional[str] = None,       # NEW
     ) -> str:
+        
         # TODO: We can probably make this an optimizer task (like GEPA)
         formatted = sorted(available_udfs)
         if formatted:

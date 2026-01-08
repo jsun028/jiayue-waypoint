@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 from utils.result_parser import *
+from utils.video import *
 from components.viewer import *
 from components.feedback import *
 
@@ -74,6 +75,7 @@ def calculate_axis_limits(df, start_frame, end_frame):
     ylim = (float(all_y.min()) - margin, float(all_y.max()) + margin)
     return xlim, ylim
 
+
 # ============================================================================
 # Main App
 # ============================================================================
@@ -86,11 +88,11 @@ def main():
     
     results_path = st.sidebar.text_input(
         "Results pickle path",
-        value="results.pkl"
+        value="viz_out/raw/results.pkl"
     )
     spec_path = st.sidebar.text_input(
         "Spec pickle path",
-        value="ego_stop_for_ped.pkl"
+        value="car_stop_for_ped.pkl"
     )
     df_path = st.sidebar.text_input(
         "DataFrame path",
@@ -132,8 +134,25 @@ def main():
     )
     
     result = results[result_idx]
-    df = pd.read_csv(data_files[result[0]])
-    summary = get_result_summary(result)    
+    data_path = data_files[result[0]]
+    df = pd.read_csv(data_path)
+    summary = get_result_summary(result) 
+
+    if 'virat' in str(data_path).lower():
+        dataset_type = DatasetType.VIRAT
+    else:
+        dataset_type = DatasetType.NUSCENES
+
+    if dataset_type == DatasetType.VIRAT:
+        video_path = str(data_path).replace("dataset/", "videos/")
+        video_path = video_path.replace(".csv", ".mp4")
+        # Using the class for efficient multiple frame loading
+        loader = VideoFrameLoader(
+            video_path,
+            original_fps=30,
+            target_fps=10,
+            cache_size=50  # Cache up to 50 frames
+        ) 
     
     # Extract result info using updated functions
     keyframe_frames = extract_keyframe_frames(result)
@@ -173,7 +192,6 @@ def main():
     with col_active_kf:
         active_kf_name = get_active_keyframe(current_frame, keyframe_frames, spec, result)
         if active_kf_name:
-            kf_score = result[1]['keyframe_scores'].get(active_kf_name, 0.0)
             st.metric("Active Keyframe", active_kf_name)
         else:
             st.metric("Active Keyframe", "—", "")
@@ -243,10 +261,31 @@ def main():
             
             # Display current frame
             active_kf = get_active_keyframe(frame_num, keyframe_frames, spec, result)
-            fig = plot_bev_with_keyframe_info(
-                df, frame_num, result,active_kf,
-                xlim, ylim
-            )
+            if dataset_type == DatasetType.VIRAT:
+                # VIRAT with video overlay
+                fig = plot_detection_with_keyframe_info(
+                    df=df,
+                    frame_idx=frame_num,
+                    result=result,
+                    active_kf=active_kf,
+                    dataset_type=dataset_type,
+                    video_frame=loader.get_frame(frame_num),  # HxWx3 numpy array
+                    show_velocity=True,
+                    show_yaw=False
+                )
+            else:
+                # NuScenes BEV
+                fig = plot_detection_with_keyframe_info(
+                    df=df,
+                    frame_idx=frame_num,
+                    result=result,
+                    active_kf=active_kf,
+                    dataset_type=dataset_type,
+                    xlim=xlim,
+                    ylim=ylim,
+                    show_velocity=True,
+                    show_yaw=False
+                )
             st.pyplot(fig)
             plt.close(fig)
             
@@ -279,12 +318,33 @@ def main():
             st.caption(f"Frame {frame_to_display}/{end_frame}")
             
             active_kf = get_active_keyframe(frame_to_display, keyframe_frames, spec, result)
-            fig_bev = plot_bev_with_keyframe_info(
-                df, frame_to_display, result, active_kf,
-                xlim, ylim
-            )
-            st.pyplot(fig_bev)
-            plt.close(fig_bev)
+            if dataset_type == DatasetType.VIRAT:
+                # VIRAT with video overlay
+                fig = plot_detection_with_keyframe_info(
+                    df=df,
+                    frame_idx=frame_to_display,
+                    result=result,
+                    active_kf=active_kf,
+                    dataset_type=dataset_type,
+                    video_frame=loader.get_frame(frame_to_display),  # HxWx3 numpy array
+                    show_velocity=True,
+                    show_yaw=False
+                )
+            else:
+                # NuScenes BEV
+                fig = plot_detection_with_keyframe_info(
+                    df=df,
+                    frame_idx=frame_to_display,
+                    result=result,
+                    active_kf=active_kf,
+                    dataset_type=dataset_type,
+                    xlim=xlim,
+                    ylim=ylim,
+                    show_velocity=True,
+                    show_yaw=False
+                )
+            st.pyplot(fig)
+            plt.close(fig)
     
     with col_right:       
 

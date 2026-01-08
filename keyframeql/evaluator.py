@@ -337,11 +337,10 @@ class QueryEvaluator:
                              object_assignment: Dict[str, int]) -> Tuple[bool, float, Dict]:
         """
         Evaluate cross-constraints for a given combination of keyframe positions
-        Returns: (is_valid, cross_constraint_score, score_details)
+        Returns: (is_valid, score_details)
         """
         
         score_details = {}
-        total_cross_score = 0.0
         
         # Extract cross-anchored constraints
         cross_anchored_constraints = []
@@ -363,12 +362,9 @@ class QueryEvaluator:
             # Cross-constraints are hard requirements: score must be > 0
             if constraint_score == 0.0:
                 # If any cross-constraint completely fails, the whole combination is invalid
-                return False, 0.0, score_details
-            else:
-                # Add the fractional score (not just 1.0)
-                total_cross_score += constraint_score
+                return False, score_details
         
-        return True, total_cross_score, score_details
+        return True, score_details
     
     def evaluate_single_cross_constraint(self, constraint, positions: Dict[str, int],
                                 keyframes_dict: Dict[str, KeyframeSpec], 

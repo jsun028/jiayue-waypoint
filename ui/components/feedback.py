@@ -28,14 +28,23 @@ def display_feedback_form(result_idx: int, result: dict,
     st.subheader("Scoring")
     
     kf_scores = result[1]['keyframe_scores']
+    constraint_scores = result[1]['cross_constraint_score']
     # Create columns - one for each keyframe
-    cols = st.columns(len(kf_scores) + 1)
+    cols = st.columns(len(kf_scores) + len(constraint_scores) + 1)
+    col_idx = 0
     with cols[0]:
         st.metric(label="aggregated", value=f"{result[1]['aggregate_score']:.2f}")
+        col_idx += 1
     # Display each keyframe score in its own column
-    for idx, (kf_name, score) in enumerate(kf_scores.items()):
-        with cols[idx+1]:
+    for kf_name, score in kf_scores.items():
+        with cols[col_idx]:
             st.metric(label=kf_name, value=f"{score:.2f}")
+            col_idx += 1
+    # Display each keyframe score in its own column
+    for c_name, score in constraint_scores.items():
+        with cols[col_idx]:
+            st.metric(label=c_name, value=f"{score:.2f}")
+            col_idx += 1
     
     st.subheader("💬 Feedback")
 

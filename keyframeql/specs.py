@@ -146,15 +146,19 @@ class QuerySpec(BaseModel):
 
 
     
-def print_spec_details(spec: QuerySpec):
-
-    print(f"Objects: {spec.objects.counts}")
-    print(f"Keyframes: {len(spec.keyframes)}")
-    print(f"Constraints: {len(spec.constraints)}")
+def print_spec_details(spec: QuerySpec) -> str:
+    """Format QuerySpec details as a string for printing or Streamlit display."""
+    
+    lines = []
+    lines.append(f"Objects: {spec.objects.counts}")
+    lines.append(f"Keyframes: {len(spec.keyframes)}")
+    lines.append(f"Constraints: {len(spec.constraints)}")
+    lines.append("")
+    
     # Show keyframe details
     for i, kf in enumerate(spec.keyframes):
-        print(f"Keyframe {i+1} ({kf.name}):")
-        print(f"  Predicates: {kf.where.op if kf.where.op else kf.where.args}")
+        lines.append(f"Keyframe {i+1} ({kf.name}):")
+        lines.append(f"  Predicates: {kf.where.op if kf.where.op else kf.where.args}")
         
         def _format_computation(comp: ComputationSpec, indent: str = "      ") -> str:
             """Format a computation spec nicely."""
@@ -180,10 +184,10 @@ def print_spec_details(spec: QuerySpec):
             
             if is_compositional:
                 # Compositional style
-                print(f"{prefix} COMPOSITIONAL: {dump['type']}(...)")
+                lines.append(f"{prefix} COMPOSITIONAL: {dump['type']}(...)")
                 comp = atom.computation
                 if comp:
-                    print(_format_computation(comp, prefix + "    "))
+                    lines.append(_format_computation(comp, prefix + "    "))
                 
                 # Show operator parameters
                 params = []
@@ -194,10 +198,10 @@ def print_spec_details(spec: QuerySpec):
                 if dump.get("mode") is not None:
                     params.append(f"mode={dump['mode']}")
                 if params:
-                    print(f"{prefix}    operator params: {', '.join(params)}")
+                    lines.append(f"{prefix}    operator params: {', '.join(params)}")
             else:
                 # Monolithic style
-                print(f"{prefix} MONOLITHIC: {dump['type']}(...)")
+                lines.append(f"{prefix} MONOLITHIC: {dump['type']}(...)")
                 details = []
                 if dump.get("obj"):
                     details.append(f"obj={dump['obj']}")
@@ -215,7 +219,7 @@ def print_spec_details(spec: QuerySpec):
                     details.append(f"mode={dump['mode']}")
                 
                 if details:
-                    print(f"{prefix}    params: {', '.join(details)}")
+                    lines.append(f"{prefix}    params: {', '.join(details)}")
 
         if kf.where.op == "ATOM" and kf.where.atom is not None:
             _format_atom("   ", kf.where.atom)
@@ -223,18 +227,19 @@ def print_spec_details(spec: QuerySpec):
             for j, arg in enumerate(kf.where.args):
                 if arg.op == "ATOM" and arg.atom is not None:
                     _format_atom(f"    {j+1}.", arg.atom)
+        lines.append("")
     
     # Show constraint details
     for i, c in enumerate(spec.constraints):
-        print(f"Constraint {i+1} ({c.kind}):")
+        lines.append(f"Constraint {i+1} ({c.kind}):")
         if c.kind == "always":
-            print(f"  Target: {c.target}, Duration: {c.duration_sec}s")
+            lines.append(f"  Target: {c.target}, Duration: {c.duration_sec}s")
         elif c.kind == "interframe":
-            print(f"  {c.anchor} -> {c.target}, Time shift: {c.time_shift}s, Comparators: {c.comparators}")
+            lines.append(f"  {c.anchor} -> {c.target}, Time shift: {c.time_shift}s, Comparators: {c.comparators}")
         elif c.kind == "trajectory":
-            print(f"  Object: {c.obj}, {c.start} -> {c.end}, Template: {c.template}")
+            lines.append(f"  Object: {c.obj}, {c.start} -> {c.end}, Template: {c.template}")
     
-    print()
+    return "\n".join(lines)
 
     # @model_validator(mode="after")
     # def kf_semantic_unique(self) -> "QuerySpec":
