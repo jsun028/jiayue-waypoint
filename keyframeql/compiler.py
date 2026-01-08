@@ -25,7 +25,7 @@ from keyframeql.optimizer.selectivity_integration import SelectivityIntegration
 class QueryCompiler:
     def __init__(self, registry: UDFRegistry, df: pd.DataFrame, logger: logger = None, coverage: float | None = None, track_stats: bool = True, dedup_threshold: float = 0.25, limit: int | None = None,
         metadata_path: str | None = None, slider_setting: str = "medium", 
-        dataset: Literal["nuscenes", "virat"] = "nuscenes", 
+        dataset: Literal["nuscene", "virat"] = "nuscene", 
         debug: bool = False):
         self.debug = debug
         self.df = df
@@ -256,10 +256,14 @@ class QueryCompiler:
                 if ok:
                     if self.dedup_threshold > 0.0:
                         self._record_overlap_window(overlap_checker, labeled_assignments, start_frame, end_frame)
-                    # Combine keyframe and cross constraint scores
-                    # Default: give more weights to keyframe scores
-                    final_score = 0.7 * np.average(list(individual_scores.values())) + \
-                        0.3 * np.average(list(cross_score_details.values()))
+                    if len(cross_score_details) > 0:
+                        # Combine keyframe and cross constraint scores
+                        # Default: give more weights to keyframe scores
+                        final_score = 0.7 * np.average(list(individual_scores.values())) + \
+                            0.3 * np.average(list(cross_score_details.values()))
+                    else:
+                        # Use keyframe scores if there are no cross constraints
+                        final_score = np.average(list(individual_scores.values()))
                     valid_combinations.append({
                         'positions': positions,
                         'score': final_score,

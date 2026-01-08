@@ -77,7 +77,8 @@ class TestEndToEndPipeline:
             sample_df, 
             logger=logger,
             track_stats=True,
-            dedup_threshold=0.0  # Disable deduplication for tests
+            dedup_threshold=0.0,  # Disable deduplication for tests
+            dataset="nuscene"
         )
     
     def test_simple_query_returns_fractional_scores(self, compiler):
@@ -222,6 +223,8 @@ class TestEndToEndPipeline:
         )
         
         results = compiler.execute_query(spec)
+        print(results)
+        print("Always results!!")
         
         # Should find results in the region where car1 is moving (frames 20+)
         assert len(results) > 0, "Should find frames with sustained movement"

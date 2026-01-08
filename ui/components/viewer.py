@@ -11,7 +11,7 @@ from typing import Optional, Literal
 # ============================================================================
 
 class DatasetType(Enum):
-    NUSCENES = "nuscenes"
+    NUSCENE = "nuscene"
     VIRAT = "virat"
 
 
@@ -80,7 +80,7 @@ def plot_detection_with_keyframe_info(
     frame_idx: int,
     result: dict,
     active_kf: Optional[str],
-    dataset_type: Literal["nuscenes", "virat"],
+    dataset_type: Literal["nuscene", "virat"],
     xlim: Optional[tuple] = None,
     ylim: Optional[tuple] = None,
     show_trajectory: bool = True,
@@ -91,7 +91,7 @@ def plot_detection_with_keyframe_info(
     debug: bool = False
 ):
     """
-    Unified visualization for NuScenes (BEV) and VIRAT (image overlay).
+    Unified visualization for NUSCENE (BEV) and VIRAT (image overlay).
     
     Args:
         df: DataFrame with detection data. Required columns:
@@ -104,9 +104,9 @@ def plot_detection_with_keyframe_info(
         frame_idx: Current frame to display
         result: Result dict with object assignments
         active_kf: Currently active keyframe name
-        dataset_type: "nuscenes" or "virat"
-        xlim: Fixed x-axis limits for BEV (NuScenes only)
-        ylim: Fixed y-axis limits for BEV (NuScenes only)
+        dataset_type: "NUSCENE" or "virat"
+        xlim: Fixed x-axis limits for BEV (NUSCENE only)
+        ylim: Fixed y-axis limits for BEV (NUSCENE only)
         show_trajectory: Whether to show trajectory trails
         trajectory_length: Number of past frames to show in trajectory
         show_velocity: Whether to show velocity vectors
@@ -140,7 +140,7 @@ def plot_detection_with_keyframe_info(
         ax.set_xlim(0, w)
         ax.set_ylim(h, 0)  # Inverted Y for image coordinates
         
-    else:  # nuscenes
+    else:  # NUSCENE
         fig, ax = plt.subplots(figsize=(8, 6), dpi=72)
         
         # Set axis limits for BEV
@@ -176,7 +176,7 @@ def plot_detection_with_keyframe_info(
             alias_name = alias[0] if alias else str(tid)
             
             color = 'lime'
-            linewidth = 4 if dataset_type == DatasetType.NUSCENES else 3
+            linewidth = 4 if dataset_type == DatasetType.NUSCENE else 3
             
             # Draw bounding box
             rect = patches.Rectangle(
@@ -189,7 +189,7 @@ def plot_detection_with_keyframe_info(
             ax.add_patch(rect)
             
             # Label with alias name
-            label_y = y1 - 3 if dataset_type == DatasetType.NUSCENES else y1 - 10
+            label_y = y1 - 3 if dataset_type == DatasetType.NUSCENE else y1 - 10
             ax.text(
                 cx, label_y, 
                 alias_name, 
@@ -235,12 +235,12 @@ def plot_detection_with_keyframe_info(
             if show_velocity and 'velocity_x' in row and 'velocity_y' in row:
                 vx, vy = row['velocity_x'], row['velocity_y']
                 if not (pd.isna(vx) or pd.isna(vy)):
-                    velocity_scale = 2.0 if dataset_type == DatasetType.NUSCENES else 10.0
+                    velocity_scale = 2.0 if dataset_type == DatasetType.NUSCENE else 10.0
                     ax.arrow(
                         cx, cy,
                         vx * velocity_scale, vy * velocity_scale,
-                        head_width=2.0 if dataset_type == DatasetType.NUSCENES else 5.0,
-                        head_length=2.5 if dataset_type == DatasetType.NUSCENES else 7.0,
+                        head_width=2.0 if dataset_type == DatasetType.NUSCENE else 5.0,
+                        head_length=2.5 if dataset_type == DatasetType.NUSCENE else 7.0,
                         fc='cyan',
                         ec='cyan',
                         alpha=0.8,
@@ -252,14 +252,14 @@ def plot_detection_with_keyframe_info(
             if show_yaw and 'yaw' in row:
                 yaw = row['yaw']
                 if not pd.isna(yaw):
-                    arrow_length = 5.0 if dataset_type == DatasetType.NUSCENES else 20.0
+                    arrow_length = 5.0 if dataset_type == DatasetType.NUSCENE else 20.0
                     dx = arrow_length * np.cos(yaw)
                     dy = arrow_length * np.sin(yaw)
                     ax.arrow(
                         cx, cy,
                         dx, dy,
-                        head_width=1.5 if dataset_type == DatasetType.NUSCENES else 8.0,
-                        head_length=2.0 if dataset_type == DatasetType.NUSCENES else 10.0,
+                        head_width=1.5 if dataset_type == DatasetType.NUSCENE else 8.0,
+                        head_length=2.0 if dataset_type == DatasetType.NUSCENE else 10.0,
                         fc='magenta',
                         ec='magenta',
                         alpha=0.7,
@@ -271,14 +271,14 @@ def plot_detection_with_keyframe_info(
             rect = patches.Rectangle(
                 (x1, y1), w, h,
                 linewidth=1,
-                edgecolor='gray' if dataset_type == DatasetType.NUSCENES else 'white',
+                edgecolor='gray' if dataset_type == DatasetType.NUSCENE else 'white',
                 facecolor='none',
-                alpha=0.5 if dataset_type == DatasetType.NUSCENES else 0.3
+                alpha=0.5 if dataset_type == DatasetType.NUSCENE else 0.3
             )
             ax.add_patch(rect)
     
     # Styling
-    if dataset_type ==DatasetType.NUSCENES:
+    if dataset_type ==DatasetType.NUSCENE:
         ax.grid(True, alpha=0.3)
         ax.set_xlabel('X (meters)', fontsize=10)
         ax.set_ylabel('Y (meters)', fontsize=10)

@@ -141,7 +141,7 @@ def main():
     if 'virat' in str(data_path).lower():
         dataset_type = DatasetType.VIRAT
     else:
-        dataset_type = DatasetType.NUSCENES
+        dataset_type = DatasetType.NUSCENE
 
     if dataset_type == DatasetType.VIRAT:
         video_path = str(data_path).replace("dataset/", "videos/")
@@ -274,7 +274,7 @@ def main():
                     show_yaw=False
                 )
             else:
-                # NuScenes BEV
+                # NuScene BEV
                 fig = plot_detection_with_keyframe_info(
                     df=df,
                     frame_idx=frame_num,
@@ -331,7 +331,7 @@ def main():
                     show_yaw=False
                 )
             else:
-                # NuScenes BEV
+                # NuScene BEV
                 fig = plot_detection_with_keyframe_info(
                     df=df,
                     frame_idx=frame_to_display,
