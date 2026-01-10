@@ -156,8 +156,8 @@ def main():
     
     # Extract result info using updated functions
     keyframe_frames = extract_keyframe_frames(result)
-    start_frame = summary['start_frame']
-    end_frame = summary['end_frame']
+    start_frame = max(min(keyframe_frames.values()) - 15, summary['start_frame'])
+    end_frame = min(max(keyframe_frames.values()) + 15, summary['end_frame'])
     
     # Initialize persistent frame state (not tied to widget)
     frame_state_key = f'current_frame_{result_idx}'   
