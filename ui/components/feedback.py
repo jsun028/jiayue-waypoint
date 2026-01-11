@@ -1,7 +1,8 @@
 import json
 from datetime import datetime
 import streamlit as st
-import pandas as pd
+import pickle
+from pathlib import Path
 
 # ============================================================================
 # Feedback Collection
@@ -22,7 +23,7 @@ def save_feedback(result_idx: int, feedback_data: dict):
     st.success("✅ Feedback saved!")
 
 def display_feedback_form(result_idx: int, result: dict, 
-                          keyframe_frames: dict, active_kf: str | None):
+                          active_kf: str | None):
     """Display feedback collection form."""
     st.markdown("---")
     st.subheader("💬 Feedback")
@@ -84,7 +85,7 @@ def display_feedback_form(result_idx: int, result: dict,
     if active_kf:
         st.markdown(f"#### Keyframe {active_kf} - Predicates")
         
-        predicate_scores = result[1]["score_details"][active_kf]
+        predicate_scores = result[1]["predicate_scores"][active_kf]
         
         # Create table with voting buttons
         for pred, score in predicate_scores.items():

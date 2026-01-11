@@ -221,11 +221,13 @@ class QueryCompiler:
                 positions = {}
                 individual_scores = {}
                 score_details = {}
-                for i, (frame_idx, score, atom_scores) in enumerate(combo):
+                predicate_scores = {}
+                for i, (frame_idx, score, kf_score_details) in enumerate(combo):
                     kf_name = kf_names[i]
                     positions[kf_name] = frame_idx
                     individual_scores[kf_name] = score
-                    score_details[kf_name] = atom_scores
+                    predicate_scores[kf_name] = self.evaluator._extract_predicate_scores(kf_score_details)
+                    score_details[kf_name] = kf_score_details
                 
                 # Early dedup check: skip if time-window IoU overlaps with accepted
                 is_overlap = False
@@ -264,6 +266,7 @@ class QueryCompiler:
                         'score': final_score,
                         'kf_scores': individual_scores,
                         'cross_constraint_score': cross_score_details,
+                        'predicate_scores': predicate_scores,
                         'score_details': score_details
                     })
                 
@@ -282,6 +285,7 @@ class QueryCompiler:
                     'time_range': f"({int(min_frame)}, {int(max_frame)})",
                     'object_classes': {alias: query_spec.objects.aliases[alias]["class"] 
                                      for alias in assignment.keys()},
+                    'predicate_scores': combination['predicate_scores'],
                     'score_details': combination.get('score_details', {})
                 })
         
@@ -393,7 +397,6 @@ class QueryCompiler:
             # Stride: minimial of 0.5 sec or specificied coverage percentage
             stride = min(int(self.seconds_to_frames(1) / 2) + 1, 
                          int(round(1.0 / self.coverage)))
-            scores_dist = []
             for frame_idx in range(min_frame, max_frame + 1, stride):
                 
                 # Evaluate intraframe constraint (the keyframe predicate itself)
@@ -406,14 +409,12 @@ class QueryCompiler:
                     frame_window = (frame_idx, min(frame_idx + duration_frames, max_frame))
                 
                 # Per-atom selectivity tracking and debugging
-                atom_scores = {}
                 for atom in all_atoms:
                     atom_key = self.evaluator._atom_to_str(atom)
 
                     try:
                         atom_score = self.evaluator.evaluate_predicate_atom_with_binding(
                             atom, frame_window, object_assignment)
-                        atom_scores[atom_key] = atom_score
                     except Exception as e:
                         atom_score = 0.0
                         if self.logger:
@@ -434,10 +435,9 @@ class QueryCompiler:
                         if isinstance(atom_score, (int, float)):
                             self.predicate_stats[key]['sum_score'] += float(atom_score)
                 
-                score = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
-                scores_dist.append(atom_score)
+                score, score_details = self.evaluator.evaluate_keyframe_with_binding(kf_spec, frame_window, object_assignment)
                 if score > 0:
-                    frame_candidates.append((frame_idx, score, atom_scores))
+                    frame_candidates.append((frame_idx, score, score_details))
             
             # Print debugging info for each predicate
             if self.debug:

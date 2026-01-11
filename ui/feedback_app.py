@@ -14,6 +14,7 @@ from components.feedback import *
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from keyframeql.utils.io import find_data_files
+from keyframeql.learner import Reranker
 
 
 # Page config
@@ -75,6 +76,37 @@ def calculate_axis_limits(df, start_frame, end_frame):
     ylim = (float(all_y.min()) - margin, float(all_y.max()) + margin)
     return xlim, ylim
 
+
+def apply_active_learning_and_rerank(all_results, reranker, output_path: str = "reranked_results.pkl"):
+    """Apply active learning from feedback and rerank results."""
+    try:
+        # Learn from feedback
+        st.sidebar.info("🔄 Learning from feedback...")
+        reranker.label_and_learn(all_results, labels_file="ui/label_data/labels.jsonl")        
+        # Rerank results
+        reranked_results = reranker.rerank_results(all_results)
+        
+        # Save to pickle file
+        output_file = Path(output_path)
+        with open(output_file, 'wb') as f:
+            pickle.dump(reranked_results, f)
+        
+        st.sidebar.success(f"✅ Reranked results saved to {output_file}")
+        
+        # Show top 5 changes
+        st.sidebar.subheader("Top 5 Reranked Results")
+        for i in range(min(5, len(reranked_results))):
+            result_idx = reranked_results[i][0]
+            score = reranked_results[i][1]['aggregate_score']
+            st.sidebar.write(f"Rank {i+1}: Result #{result_idx} (Score: {score:.3f})")
+        
+        return reranked_results
+        
+    except Exception as e:
+        st.error(f"❌ Error during active learning: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        return None
 
 # ============================================================================
 # Main App
@@ -153,6 +185,26 @@ def main():
             target_fps=10,
             cache_size=50  # Cache up to 50 frames
         ) 
+    
+    # Active learning and reranking
+    if st.sidebar.button("🤖 Learn & Rerank", key=f"rerank_{result_idx}", type="primary"):
+        # Check if there's any feedback
+        feedback_file = Path("ui/label_data/labels.jsonl")
+        if not feedback_file.exists():
+            st.sidebar.warning("⚠️ No feedback found. Please submit some feedback first.")
+        else:
+            reranker = Reranker(results)
+            with st.spinner("Running active learning..."):
+                reranked = apply_active_learning_and_rerank(
+                    results, 
+                    reranker,
+                    output_path="reranked_results.pkl"
+                )
+                
+                if reranked is not None:
+                    # Store in session state for potential reload
+                    st.session_state.reranked_results = reranked
+                    st.balloons()
     
     # Extract result info using updated functions
     keyframe_frames = extract_keyframe_frames(result)
@@ -348,9 +400,8 @@ def main():
             plt.close(fig)
     
     with col_right:       
-
         # Feedback form
-        display_feedback_form(result_idx, result, keyframe_frames, active_kf)   
+        display_feedback_form(result_idx, result, active_kf)   
 
 if __name__ == "__main__":
     main()

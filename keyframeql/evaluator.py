@@ -1,5 +1,5 @@
 import pandas as pd 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from keyframeql.registry import UDFRegistry
 from keyframeql.df_utils import resolve_object_alias
 from keyframeql.specs import (
@@ -60,72 +60,138 @@ class QueryEvaluator:
         """Convert seconds to frames based on FPS."""
         return int(seconds * self.fps)
     
+    def _extract_predicate_scores(self, structure: Dict) -> Dict[str, float]:
+        """Extract all atomic predicate scores from structure into flat dict."""
+        scores = {}
+        
+        if structure['operator'] == 'ATOM':
+            scores[structure['predicate']] = structure['score']
+        else:
+            for child in structure['children']:
+                scores.update(self._extract_predicate_scores(child))
+        
+        return scores
+
     def evaluate_keyframe_with_binding(self, keyframe_spec: KeyframeSpec, 
                                      frame_window: Tuple[int, int], 
-                                     object_assignment: Dict[str, int]) -> float:
+                                     object_assignment: Dict[str, int]) -> Tuple[float, Dict[str, Any]]:
         """Evaluate a keyframe with a specific object assignment.
         
         Returns:
-            float: Score in [0.0, 1.0] representing how well the keyframe predicate is satisfied
+            Tuple containing:
+            - float: Score in [0.0, 1.0] representing how well the keyframe predicate is satisfied
+            - dict: Expression structure with operator information
         """
         return self.evaluate_predicate_expr_with_binding(
             keyframe_spec.where, frame_window, object_assignment
         )
 
     def evaluate_predicate_expr_with_binding(self, expr: PredicateExpr, 
-                                           frame_window: Tuple[int, int], 
-                                           object_assignment: Dict[str, int], use_logical_aggregation: bool = True) -> float:
+                                        frame_window: Tuple[int, int], 
+                                        object_assignment: Dict[str, int], 
+                                        use_logical_aggregation: bool = True) -> Tuple[float, Dict[str, Any]]:
         """Recursively evaluate a predicate expression tree with object binding.
         
         Returns:
-            float: Score in [0.0, 1.0] representing the degree to which the predicate is satisfied.
+            Tuple containing:
+            - float: Score in [0.0, 1.0] representing the degree to which the predicate is satisfied.
                    For atomic predicates, this is the fraction of frames satisfying the condition.
                    For AND: minimum score across all sub-expressions (conjunction semantics)
                    For OR: maximum score across all sub-expressions (disjunction semantics)
                    For NOT: 1.0 - score of the negated expression
+            - dict: Expression structure with keys:
+                   'operator': str (ATOM, AND, OR, NOT)
+                   'score': float (same as return value)
+                   'predicate': str (for ATOM, the predicate name)
+                   'children': list of dicts (for AND/OR/NOT, recursive structures)
         """
         if expr.op == "ATOM":
             if expr.atom is None:
                 raise ValueError("ATOM operation requires an atom")
-            return self.evaluate_predicate_atom_with_binding(expr.atom, frame_window, object_assignment)
+            score = self.evaluate_predicate_atom_with_binding(expr.atom, frame_window, object_assignment)
+            
+            pred_structure = {
+                'operator': 'ATOM',
+                'score': score,
+                'predicate': self._atom_to_str(expr.atom),  
+                'children': []
+            }
+            return score, pred_structure
         
         elif expr.op == "AND":
             if expr.args is None or len(expr.args) == 0:
-                return 1.0  # Empty AND is True
+                pred_structure = {
+                    'operator': 'AND',
+                    'score': 1.0,
+                    'children': []
+                }
+                return 1.0, pred_structure
 
+            # Recursively evaluate children
+            results = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                      for arg in expr.args]
+            scores = [r[0] for r in results]
+            children_structures = [r[1] for r in results]
+            
             if use_logical_aggregation:
-                # AND semantics: take minimum score (all conditions must be satisfied)
-                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                         for arg in expr.args]
-                return min(scores)
+                final_score = min(scores)
             else:
-                # AND semantics: take the score of the first argument
-                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                      for arg in expr.args)
+                final_score = float(any(scores))
+            
+            pred_structure = {
+                'operator': 'AND',
+                'score': final_score,
+                'children': children_structures
+            }
+            return final_score, pred_structure
         
         elif expr.op == "OR":
             if expr.args is None or len(expr.args) == 0:
-                return 0.0  # Empty OR is False
+                pred_structure = {
+                    'operator': 'OR',
+                    'score': 0.0,
+                    'children': []
+                }
+                return 0.0, pred_structure
 
+            # Recursively evaluate children
+            results = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
+                      for arg in expr.args]
+            scores = [r[0] for r in results]
+            children_structures = [r[1] for r in results]
+            
             if use_logical_aggregation:
-                # OR semantics: take maximum score (at least one condition should be satisfied)
-                scores = [self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                     for arg in expr.args]
-                return max(scores)
+                final_score = max(scores)
             else:
-                # OR semantics: take the score of the first argument
-                return any(self.evaluate_predicate_expr_with_binding(arg, frame_window, object_assignment) 
-                      for arg in expr.args)
+                final_score = float(any(scores))
+            
+            pred_structure = {
+                'operator': 'OR',
+                'score': final_score,
+                'children': children_structures
+            }
+            return final_score, pred_structure
         
         elif expr.op == "NOT":
             if expr.args is None or len(expr.args) != 1:
                 raise ValueError("NOT operation requires exactly one argument")
-            # NOT semantics: complement the score
+            
+            # Recursively evaluate child
+            child_score, child_structure = self.evaluate_predicate_expr_with_binding(
+                expr.args[0], frame_window, object_assignment
+            )
+            
             if use_logical_aggregation:
-                score = self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
-                return 1.0 - score
+                final_score = 1.0 - child_score
             else:
-                return not self.evaluate_predicate_expr_with_binding(expr.args[0], frame_window, object_assignment)
+                final_score = float(not child_score)
+            
+            pred_structure = {
+                'operator': 'NOT',
+                'score': final_score,
+                'children': [child_structure]
+            }
+            return final_score, pred_structure
         
         else:
             raise ValueError(f"Unknown predicate operation: {expr.op}")
