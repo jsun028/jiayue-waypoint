@@ -92,7 +92,7 @@ def main():
     )
     spec_path = st.sidebar.text_input(
         "Spec pickle path",
-        value="nuscene_turning.pkl"
+        value="nuscene_turn.pkl"
     )
     df_path = st.sidebar.text_input(
         "DataFrame path",
@@ -173,7 +173,8 @@ def main():
     # Display result metadata
     st.header(f"Result {result_idx + 1}")
     file_name = str(data_files[result[0]]).split("/")[-1]
-    st.write(f"Dataset: {file_name}")
+    assignment = result[1]["object_assignment"]
+    st.write(f"Dataset: {file_name} | {assignment}")
 
     # Current frame from state
     current_frame = st.session_state[frame_state_key]

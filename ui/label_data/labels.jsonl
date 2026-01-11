@@ -1,2 +1,1 @@
-{"timestamp": "2026-01-06T12:02:35.587605", "result_idx": 5, "overall_rating": 1.0, "keyframe_feedback": {"k1": 1.0}, "comments": ""}
-{"timestamp": "2026-01-06T12:02:44.843637", "result_idx": 4, "overall_rating": 1.0, "keyframe_feedback": {"k1": 1.0}, "comments": ""}
+{"timestamp": "2026-01-11T14:54:48.327151", "result_idx": 0, "overall_rating": 1.0, "keyframe_feedback": {"k1": 1.0}, "predicate_feedback": {"k1": {"turning(obj=car1, value=8.0)": 1.0, "GreaterThan(velocity(obj=car1), value=1.2)": 0.0}}, "comments": ""}

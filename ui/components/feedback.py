@@ -25,36 +25,13 @@ def display_feedback_form(result_idx: int, result: dict,
                           keyframe_frames: dict, active_kf: str | None):
     """Display feedback collection form."""
     st.markdown("---")
-    st.subheader("Scoring")
-    
-    kf_scores = result[1]['keyframe_scores']
-    constraint_scores = result[1]['cross_constraint_score']
-    # Create columns - one for each keyframe
-    cols = st.columns(len(kf_scores) + len(constraint_scores) + 1)
-    col_idx = 0
-    with cols[0]:
-        st.metric(label="aggregated", value=f"{result[1]['aggregate_score']:.2f}")
-        col_idx += 1
-    # Display each keyframe score in its own column
-    for kf_name, score in kf_scores.items():
-        with cols[col_idx]:
-            st.metric(label=kf_name, value=f"{score:.2f}")
-            col_idx += 1
-    # Display each keyframe score in its own column
-    for c_name, score in constraint_scores.items():
-        with cols[col_idx]:
-            st.metric(label=c_name, value=f"{score:.2f}")
-            col_idx += 1
-    
-    # Show object assignment
-    st.subheader("Object Assignment")
-    assignment = result[1]["object_assignment"]
-    table_data = []
-    for alias in assignment:
-        table_data.append({"alias": alias, "track id": assignment[alias]})
-    st.dataframe(pd.DataFrame(table_data), hide_index=True)
-    
     st.subheader("💬 Feedback")
+
+    # Initialize session state for votes
+    if 'kf_votes' not in st.session_state:
+        st.session_state.kf_votes = {}
+    if 'pred_votes' not in st.session_state:
+        st.session_state.pred_votes = {}
 
     # Overall rating
     rating_map = {
@@ -68,59 +45,81 @@ def display_feedback_form(result_idx: int, result: dict,
         key=f"overall_rating_{result_idx}"
     )
     overall_score = rating_map[overall_rating]
-    
-    kf_feedback = {}
-    # Per-keyframe feedback
-    if active_kf:
-        st.markdown(f"#### Keyframe {active_kf}")
-        
-        # Keyframe info
-        predicate_scores = result[1]["score_details"][active_kf]
-        # Create DataFrame for table display
-        table_data = []
-        for pred in predicate_scores:
-            score = predicate_scores[pred]
-            
-            table_data.append({
-                'Predicate': pred,
-                'Score': f"{score:.3f}",
-            })
-        
-        # Display as table
-        pred_df = pd.DataFrame(table_data)
-        st.dataframe(
-            pred_df,
-            width="stretch",
-            hide_index=True,
-            column_config={
-                'Predicate': st.column_config.TextColumn(width="medium"),
-                'Score': st.column_config.NumberColumn(width="small"),
-            }
-        )
 
-        # kf_rating_map = {
-        #     "✅ Yes": 1.0,
-        #     "❌ No": 0.0,
-        #     "⚠️ Partial": 0.5
-        # }
-        # kf_rating = st.radio(
-        #     f"{active_kf} correct?",
-        #     ["✅ Yes", "❌ No", "⚠️ Partial"],
-        #     key=f"kf_feedback_{result_idx}_{active_kf}"
-        # )
-        # kf_feedback[active_kf] = kf_rating_map[kf_rating]
-    
-    # Comments
+        # Comments
     comments = st.text_area(
         "Additional comments",
         key=f"comments_{result_idx}"
     )
+    
+    # Keyframe voting
+    st.subheader("Keyframe Ratings")
+    kf_feedback = {}
+    kf_scores = result[1]['keyframe_scores']
+    for kf_name in kf_scores.keys():
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        kf_vote_key = f"{result_idx}_{kf_name}"
+        current_vote = st.session_state.kf_votes.get(kf_vote_key, None)
+        
+        with col1:
+            st.write(f"**{kf_name}**")
+        with col2:
+            up_type = "primary" if current_vote == 1.0 else "secondary"
+            if st.button("👍", key=f"kf_up_{result_idx}_{kf_name}", type=up_type):
+                st.session_state.kf_votes[kf_vote_key] = 1.0
+                st.rerun()
+        with col3:
+            down_type = "primary" if current_vote == 0.0 else "secondary"
+            if st.button("👎", key=f"kf_down_{result_idx}_{kf_name}", type=down_type):
+                st.session_state.kf_votes[kf_vote_key] = 0.0
+                st.rerun()
+        
+        # Collect feedback from session state
+        if current_vote is not None:
+            kf_feedback[kf_name] = current_vote
+    
+    # Per-keyframe predicate feedback
+    predicate_feedback = {}
+    if active_kf:
+        st.markdown(f"#### Keyframe {active_kf} - Predicates")
+        
+        predicate_scores = result[1]["score_details"][active_kf]
+        
+        # Create table with voting buttons
+        for pred, score in predicate_scores.items():
+            col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
+            
+            pred_vote_key = f"{result_idx}_{active_kf}_{pred}"
+            current_pred_vote = st.session_state.pred_votes.get(pred_vote_key, None)
+            
+            with col1:
+                st.write(pred)
+            with col2:
+                st.write(f"{score:.3f}")
+            with col3:
+                up_type = "primary" if current_pred_vote == 1.0 else "secondary"
+                if st.button("👍", key=f"pred_up_{result_idx}_{active_kf}_{pred}", type=up_type):
+                    st.session_state.pred_votes[pred_vote_key] = 1.0
+                    st.rerun()
+            with col4:
+                down_type = "primary" if current_pred_vote == 0.0 else "secondary"
+                if st.button("👎", key=f"pred_down_{result_idx}_{active_kf}_{pred}", type=down_type):
+                    st.session_state.pred_votes[pred_vote_key] = 0.0
+                    st.rerun()
+            
+            # Collect predicate feedback from session state
+            if current_pred_vote is not None:
+                if active_kf not in predicate_feedback:
+                    predicate_feedback[active_kf] = {}
+                predicate_feedback[active_kf][pred] = current_pred_vote
     
     # Submit button
     if st.button("Submit Feedback", key=f"submit_{result_idx}"):
         feedback_data = {
             'overall_rating': overall_score,
             'keyframe_feedback': kf_feedback,
+            'predicate_feedback': predicate_feedback,
             'comments': comments
         }
         save_feedback(result_idx, feedback_data)

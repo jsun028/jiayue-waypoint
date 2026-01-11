@@ -1,6 +1,17 @@
+SAM dependencies
+```
+python3 -m venv sam
+source sam/bin/activate
+pip install ultralytics opencv-python pandas numpy
+pip install git+https://github.com/facebookresearch/segment-anything-2.git
+
+mkdir -p checkpoints
+wget https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt -P checkpoints/
+```
+
 Run object detecion on raw videos (10 FPS output)
 ```
-python3 run_detection.py --video_dir ../samples/ --output_dir .
+python3 detection_sam.py --video_dir samples/ --output_dir .
 ```
 
 Augment object detection results with velocity (vel_x, vel_y), acceleration and yaw
