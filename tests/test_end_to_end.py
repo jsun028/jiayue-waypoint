@@ -326,12 +326,12 @@ class TestScoreComparison:
         
         # Should be approximately 0.75 (15 out of 20 frames)
         expected = 15.0 / 20.0
-        assert abs(score - expected) < 0.01, \
-            f"Expected {expected}, got {score}"
+        assert abs(score[0] - expected) < 0.01, \
+            f"Expected {expected}, got {score[0]}"
         
         # Explicitly verify it's not 0.0 or 1.0
-        assert 0.0 < score < 1.0, \
-            f"Score should be fractional, got {score}"
+        assert 0.0 < score[0] < 1.0, \
+            f"Score should be fractional, got {score[0]}"
 
 
 if __name__ == "__main__":

@@ -90,9 +90,10 @@ class TestPredicateEvaluation:
             expr, frame_window=(0, 9), object_assignment=assignment
         )
         
-        assert isinstance(score, float), "Score should be a float"
-        assert 0.0 <= score <= 1.0, "Score should be in [0, 1]"
-        assert abs(score - 0.7) < 0.01, f"Expected ~0.7, got {score}"
+        assert isinstance(score, tuple), "Score details should be a tuple"
+        assert isinstance(score[0], float), "Score should be a float"
+        assert 0.0 <= score[0] <= 1.0, "Score should be in [0, 1]"
+        assert abs(score[0] - 0.7) < 0.01, f"Expected ~0.7, got {score}"
     
     def test_and_combines_with_minimum(self, compiler):
         """Test that AND takes the minimum of scores."""
@@ -130,13 +131,13 @@ class TestPredicateEvaluation:
         )
         
         # AND should return the minimum
-        expected_min = min(score1, score2)
-        assert abs(and_score - expected_min) < 0.01, \
-            f"AND should return min({score1}, {score2}) = {expected_min}, got {and_score}"
+        expected_min = min(score1[0], score2[0])
+        assert abs(and_score[0] - expected_min) < 0.01, \
+            f"AND should return min({score1[0]}, {score2[0]}) = {expected_min}, got {and_score[0]}"
         
         # Verify it's not the boolean all() behavior
-        assert 0.0 < and_score < 1.0, \
-            f"AND should preserve fractional score, got {and_score}"
+        assert 0.0 < and_score[0] < 1.0, \
+            f"AND should preserve fractional score, got {and_score[0]}"
     
     def test_or_combines_with_maximum(self, compiler):
         """Test that OR takes the maximum of scores."""
@@ -175,12 +176,12 @@ class TestPredicateEvaluation:
         )
         
         # OR should return the maximum
-        expected_max = max(score1, score2)
-        assert abs(or_score - expected_max) < 0.01, \
-            f"OR should return max({score1}, {score2}) = {expected_max}, got {or_score}"
+        expected_max = max(score1[0], score2[0])
+        assert abs(or_score[0] - expected_max) < 0.01, \
+            f"OR should return max({score1[0]}, {score2[0]}) = {expected_max}, got {or_score[0]}"
         
         # Verify it's not the boolean any() behavior
-        assert 0.0 < or_score < 1.0, \
+        assert 0.0 < or_score[0] < 1.0, \
             f"OR should preserve fractional score, got {or_score}"
     
     def test_not_complements_score(self, compiler):
@@ -206,9 +207,9 @@ class TestPredicateEvaluation:
         )
         
         # NOT should return complement
-        expected = 1.0 - score
-        assert abs(not_score - expected) < 0.01, \
-            f"NOT should return 1.0 - {score} = {expected}, got {not_score}"
+        expected = 1.0 - score[0]
+        assert abs(not_score[0] - expected) < 0.01, \
+            f"NOT should return 1.0 - {score[0]} = {expected}, got {not_score[0]}"
     
     def test_nested_expressions(self, compiler):
         """Test nested AND/OR expressions."""
@@ -255,12 +256,12 @@ class TestPredicateEvaluation:
         )
         
         # Expected: max(min(score1, score2), score3)
-        expected = max(min(score1, score2), score3)
+        expected = max(min(score1[0], score2[0]), score3[0])
         
-        assert abs(score - expected) < 0.01, \
-            f"Expected {expected}, got {score}"
-        assert 0.0 < score < 1.0, \
-            f"Should preserve fractional score, got {score}"
+        assert abs(score[0] - expected) < 0.01, \
+            f"Expected {expected}, got {score[0]}"
+        assert 0.0 < score[0] < 1.0, \
+            f"Should preserve fractional score, got {score[0]}"
     
     def test_pairwise_predicates_with_and(self, compiler):
         """Test AND with pairwise predicates."""
@@ -295,12 +296,12 @@ class TestPredicateEvaluation:
         )
         
         # Verify AND gives minimum
-        assert abs(and_score - min(score1, score2)) < 0.01, \
+        assert abs(and_score[0] - min(score1[0], score2[0])) < 0.01, \
             f"AND should return min of scores"
         
         # Both should have high scores, so AND should be high
-        assert and_score > 0.5, \
-            f"Both cars have velocity > 2.0 most of the time, AND score should be high, got {and_score}"
+        assert and_score[0] > 0.5, \
+            f"Both cars have velocity > 2.0 most of the time, AND score should be high, got {and_score[0]}"
 
 
 class TestKeyframeEvaluation:
@@ -360,8 +361,9 @@ class TestKeyframeEvaluation:
             kf, frame_window=(0, 9), object_assignment=assignment
         )
         
-        assert isinstance(score, float), "Score should be float"
-        assert 0.0 < score < 1.0, f"Should be fractional, got {score}"
+        assert isinstance(score, tuple), "Score details should be a tuple"
+        assert isinstance(score[0], float), "Score should be float"
+        assert 0.0 < score[0] < 1.0, f"Should be fractional, got {score[0]}"
 
 
 if __name__ == "__main__":

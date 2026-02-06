@@ -402,7 +402,7 @@ class TestPredicateExprWithComposition:
         )
         
         # Velocity is 0.5: both > 0.3 AND < 0.7, so should be 1.0
-        assert score > 0.99
+        assert score[0] > 0.99
     
     def test_mixed_monolithic_and_compositional(self, evaluator):
         """Test mixing monolithic and compositional in same expression."""
@@ -458,7 +458,7 @@ class TestPredicateExprWithComposition:
         )
                 
         # Monolithic condition fails
-        assert score == 0
+        assert score[0] == 0
 
 
 class TestEdgeCases:

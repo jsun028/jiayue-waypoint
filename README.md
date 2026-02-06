@@ -15,14 +15,10 @@ pip install -r requirements.txt
 ```
 
 
-### 📥 Data Preparation
-Download the virat traffic dataset from [Google Drive](https://drive.google.com/file/d/1DIy0NOBPTnRaDsnqSl-o1e3vAeFfM3Kz/view?usp=sharing) and place it in the `videos/virat/` folder.
-
-
 ## How to run 
 
 ### UI (Streamlit) 
-Interactive query generation
+Interactive query generation. The app requires OPENAI_API_KEY environment variable. 
 ```
 streamlit run ./ui/query_app.py
 ```
@@ -62,4 +58,9 @@ python3 main.py --spec nuscene_turn.pkl --data dataset/nuscene/scene_scene-0234.
 Run spec across all data and slider settings
 ```
 python3 run_batch.py --spec nuscene_turn.pkl --dataset-dir dataset/nuscene --n-data 100 --output-dir ped_stop --max-workers 64 --coverage 0.1 --track-stats --viz --limit 5 --dedup-threshold 0.15 --viz --slider-setting low,medium,high --keep-empty
+```
+
+### Testing 
+```
+./run_tests.sh all
 ```
