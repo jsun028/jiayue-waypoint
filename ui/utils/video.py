@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import math
 from pathlib import Path
 from typing import Optional, Dict
 import warnings
@@ -40,8 +41,9 @@ def get_video_frame(
         return cache[frame_idx]
     
     # Convert downsampled frame index to original video frame index
-    fps_ratio = original_fps / target_fps
-    actual_frame_idx = int(frame_idx * fps_ratio)
+    # Use ceiling to match preprocessing approach
+    frame_skip = math.ceil(original_fps / target_fps)
+    actual_frame_idx = frame_idx * frame_skip
     
     # Open video
     video_path = Path(video_path)
@@ -113,7 +115,7 @@ class VideoFrameLoader:
         self.video_path = Path(video_path)
         self.original_fps = original_fps
         self.target_fps = target_fps
-        self.fps_ratio = original_fps / target_fps
+        self.frame_skip = math.ceil(original_fps / target_fps)
         
         # Initialize cache
         self.cache_size = cache_size
@@ -154,7 +156,15 @@ class VideoFrameLoader:
             return self.cache[frame_idx].copy()
         
         # Load frame
-        actual_frame_idx = int(frame_idx * self.fps_ratio)
+        actual_frame_idx = frame_idx * self.frame_skip
+        
+        # Validate frame index bounds
+        if actual_frame_idx >= self.total_frames:
+            warnings.warn(
+                f"Frame index {actual_frame_idx} (from {frame_idx}) exceeds video length "
+                f"({self.total_frames} frames)"
+            )
+            return None
         
         cap = cv2.VideoCapture(str(self.video_path))
         if not cap.isOpened():
