@@ -124,7 +124,10 @@ if __name__ == "__main__":
         slider_setting=args.slider_setting,
         dataset=args.dataset
     )
-    
+    print(f"Total results found: {len(top_results)}")
+    print("Preview of top results:")
+    for i, result in enumerate(top_results[:5]):
+        print(f"{i+1}: {result}")
     # Plot top-k before reranking
     # plot_top_k(top_results, data_files, "viz_out/raw/", 5)
     with open('search_results.pkl', 'wb') as f:
