@@ -155,6 +155,11 @@ def main():
     spec = st.session_state.spec
     data_files = st.session_state.data_files
     
+    # Check if results are empty
+    if not results:
+        st.warning("No results found in the loaded data. Please check your results file.")
+        return
+    
     # Sidebar - Result selection
     st.sidebar.markdown("---")
     st.sidebar.header("📊 Results")
@@ -175,6 +180,8 @@ def main():
     else:
         dataset_type = DatasetType.NUSCENE
 
+    # Initialize video loader for VIRAT datasets
+    loader = None
     if dataset_type == DatasetType.VIRAT:
         video_path = str(data_path).replace("dataset/", "videos/")
         video_path = video_path.replace(".csv", ".mp4")
@@ -314,18 +321,34 @@ def main():
             
             # Display current frame
             active_kf = get_active_keyframe(frame_num, keyframe_frames, spec, result)
-            if dataset_type == DatasetType.VIRAT:
+            if dataset_type == DatasetType.VIRAT and loader is not None:
                 # VIRAT with video overlay
-                fig = plot_detection_with_keyframe_info(
-                    df=df,
-                    frame_idx=frame_num,
-                    result=result,
-                    active_kf=active_kf,
-                    dataset_type=dataset_type,
-                    video_frame=loader.get_frame(frame_num),  # HxWx3 numpy array
-                    show_velocity=True,
-                    show_yaw=False
-                )
+                try:
+                    video_frame = loader.get_frame(frame_num)
+                    fig = plot_detection_with_keyframe_info(
+                        df=df,
+                        frame_idx=frame_num,
+                        result=result,
+                        active_kf=active_kf,
+                        dataset_type=dataset_type,
+                        video_frame=video_frame,  # HxWx3 numpy array
+                        show_velocity=True,
+                        show_yaw=False
+                    )
+                except Exception as e:
+                    st.error(f"Error loading video frame: {e}")
+                    # Fallback to plot without video
+                    fig = plot_detection_with_keyframe_info(
+                        df=df,
+                        frame_idx=frame_num,
+                        result=result,
+                        active_kf=active_kf,
+                        dataset_type=DatasetType.NUSCENE,  # Use NuScene mode as fallback
+                        xlim=xlim,
+                        ylim=ylim,
+                        show_velocity=True,
+                        show_yaw=False
+                    )
             else:
                 # NuScene BEV
                 fig = plot_detection_with_keyframe_info(
@@ -371,18 +394,34 @@ def main():
             st.caption(f"Frame {frame_to_display}/{end_frame}")
             
             active_kf = get_active_keyframe(frame_to_display, keyframe_frames, spec, result)
-            if dataset_type == DatasetType.VIRAT:
+            if dataset_type == DatasetType.VIRAT and loader is not None:
                 # VIRAT with video overlay
-                fig = plot_detection_with_keyframe_info(
-                    df=df,
-                    frame_idx=frame_to_display,
-                    result=result,
-                    active_kf=active_kf,
-                    dataset_type=dataset_type,
-                    video_frame=loader.get_frame(frame_to_display),  # HxWx3 numpy array
-                    show_velocity=True,
-                    show_yaw=False
-                )
+                try:
+                    video_frame = loader.get_frame(frame_to_display)
+                    fig = plot_detection_with_keyframe_info(
+                        df=df,
+                        frame_idx=frame_to_display,
+                        result=result,
+                        active_kf=active_kf,
+                        dataset_type=dataset_type,
+                        video_frame=video_frame,  # HxWx3 numpy array
+                        show_velocity=True,
+                        show_yaw=False
+                    )
+                except Exception as e:
+                    st.error(f"Error loading video frame: {e}")
+                    # Fallback to plot without video
+                    fig = plot_detection_with_keyframe_info(
+                        df=df,
+                        frame_idx=frame_to_display,
+                        result=result,
+                        active_kf=active_kf,
+                        dataset_type=DatasetType.NUSCENE,  # Use NuScene mode as fallback
+                        xlim=xlim,
+                        ylim=ylim,
+                        show_velocity=True,
+                        show_yaw=False
+                    )
             else:
                 # NuScene BEV
                 fig = plot_detection_with_keyframe_info(
