@@ -5,6 +5,7 @@ import cv2
 from pathlib import Path
 import argparse
 import shutil
+import math
 from sam2.build_sam import build_sam2_video_predictor
 
 def smooth_tracks(df, alpha=0.3):
@@ -59,7 +60,7 @@ def detect_initial_objects(frame, conf_threshold=0.6):
     Returns list of boxes [x1, y1, x2, y2] and class names.
     """
     from ultralytics import YOLO
-    model = YOLO("yolo11x.pt")
+    model = YOLO("yolo26x.pt")
     
     results = model(frame, conf=conf_threshold, verbose=False)[0]
     
@@ -81,7 +82,8 @@ def extract_video_chunks(video_path, chunk_duration=30, target_fps=5, scale_fact
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    frame_skip = int(original_fps / target_fps)
+    # Use ceiling to ensure we don't exceed expected frame count
+    frame_skip = math.ceil(original_fps / target_fps)
     frames_per_chunk = int(chunk_duration * target_fps)
     
     chunks = []
@@ -98,6 +100,7 @@ def extract_video_chunks(video_path, chunk_duration=30, target_fps=5, scale_fact
     print(f"  Original FPS: {original_fps}, Target FPS: {target_fps}")
     print(f"  Original resolution: {original_width}x{original_height}")
     print(f"  Scaled resolution: {scaled_width}x{scaled_height}")
+    print(f"  Frame skip: {frame_skip} (keep every {frame_skip}th frame)")
     print(f"  Frames per chunk: {frames_per_chunk}")
     
     while True:
@@ -136,7 +139,7 @@ def extract_video_chunks(video_path, chunk_duration=30, target_fps=5, scale_fact
         ))
     
     cap.release()
-    
+
     return chunks, total_frames, output_frame_count, scaled_width, scaled_height
 
 def calculate_iou(box1, box2):
@@ -263,6 +266,12 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
                            chunk_duration=30, target_fps=5, scale_factor=0.5):
     """Process entire video in chunks"""
     
+    # Get video info for validation
+    cap = cv2.VideoCapture(str(video_path))
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    
     # Extract video into chunks
     print(f"  Extracting video into chunks...")
     chunks, total_frames, output_frames, w, h = extract_video_chunks(
@@ -270,6 +279,9 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
     )
     
     print(f"  Split into {len(chunks)} chunks")
+    print(f"  Original video frames: {total_frames}")
+    print(f"  Downsampled frames: {output_frames}")
+    print(f"  Expected max frame index: {output_frames - 1}")
     
     # Create temp directory
     temp_base_dir = Path(output_dir) / "temp" / video_id
@@ -282,7 +294,7 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
     
     for chunk_idx, (chunk_frames, start_frame_idx, _, _) in enumerate(chunks):
         print(f"  Processing chunk {chunk_idx + 1}/{len(chunks)} " +
-              f"(frames {start_frame_idx}-{start_frame_idx + len(chunk_frames)})")
+              f"(local frames: {len(chunk_frames)}, global start: {start_frame_idx})")
         
         # Process chunk with SAM2
         chunk_df = process_chunk_with_sam2(predictor, chunk_frames, chunk_idx, temp_base_dir)
@@ -290,6 +302,11 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
         if len(chunk_df) == 0:
             print(f"    No objects tracked in chunk {chunk_idx}")
             continue
+        
+        # Check chunk frame indices before adjustment
+        local_min = chunk_df['frame_index'].min()
+        local_max = chunk_df['frame_index'].max()
+        print(f"    SAM2 generated local frame indices: {local_min} to {local_max}")
         
         # Create mapping for this chunk's track IDs
         current_chunk_mapping = {}
@@ -332,8 +349,21 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
         # Remap track IDs to global IDs
         chunk_df['track_id'] = chunk_df['track_id'].map(current_chunk_mapping)
         
-        # Adjust frame indices to global timeline
-        chunk_df['frame_index'] = chunk_df['frame_index'] + start_frame_idx + 1  # 1-indexed
+        chunk_df['frame_index'] = chunk_df['frame_index'] + start_frame_idx
+        
+        # Validate frame indices don't exceed video bounds
+        max_frame_idx = chunk_df['frame_index'].max()
+        if max_frame_idx >= output_frames:
+            print(f"    WARNING: Chunk {chunk_idx} generated frame index {max_frame_idx} >= {output_frames}")
+            # Clamp to valid range
+            chunk_df['frame_index'] = chunk_df['frame_index'].clip(0, output_frames - 1)
+            print(f"    Clamped frame indices to valid range [0, {output_frames - 1}]")
+        
+        # Additional validation: check if frame indices would exceed original video when converted
+        frame_skip_ratio = math.ceil(original_fps / target_fps)  # Use ceiling to match preprocessing
+        max_converted_idx = max_frame_idx * frame_skip_ratio
+        if max_converted_idx >= total_frames:
+            print(f"    WARNING: Frame {max_frame_idx} converts to {max_converted_idx:.0f} >= {total_frames} original frames")
         
         # Save last frame boxes for next chunk
         last_frame_idx = chunk_df['frame_index'].max()
@@ -351,6 +381,26 @@ def process_video_in_chunks(video_path, predictor, output_dir, video_id,
     
     # Concatenate all chunks
     final_df = pd.concat(all_results, ignore_index=True)
+    
+    # Final validation of frame indices
+    max_generated_frame = final_df['frame_index'].max()
+    min_generated_frame = final_df['frame_index'].min()
+    
+    print(f"  Generated frame index range: {min_generated_frame} to {max_generated_frame}")
+    print(f"  Expected valid range: 0 to {output_frames - 1}")
+    
+    # Also check conversion to original video frames
+    frame_skip_ratio = math.ceil(original_fps / target_fps)  # Use ceiling to match preprocessing
+    max_converted = max_generated_frame * frame_skip_ratio
+    print(f"  Max frame converts to original frame: {max_converted:.0f} (video has {total_frames} frames)")
+    
+    if max_generated_frame >= output_frames or min_generated_frame < 0 or max_converted >= total_frames:
+        print(f"  WARNING: Frame indices outside valid range detected!")
+        print(f"    Downsampled range issue: [{min_generated_frame}, {max_generated_frame}] vs expected [0, {output_frames - 1}]")
+        print(f"    Original frame conversion issue: max {max_converted:.0f} vs video length {total_frames}")
+        # Clamp all indices to valid range
+        final_df['frame_index'] = final_df['frame_index'].clip(0, output_frames - 1)
+        print(f"  Clamped all frame indices to valid range [0, {output_frames - 1}]")
     
     # Reorder columns
     schema_columns = [
