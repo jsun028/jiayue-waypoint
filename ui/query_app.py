@@ -5,6 +5,9 @@ import json
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
+import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,6 +63,7 @@ def main():
         st.session_state.stats_text = None
     if 'last_prompt' not in st.session_state:
         st.session_state.last_prompt = None
+
     
     # Initialize LM
     init_lm()
@@ -81,18 +85,9 @@ def main():
                 with st.spinner("Computing statistics..."):
                     st.session_state.stats_text = load_stats(dataset_dir, sample_ratio)
                     st.success("Statistics loaded!")
-        
-        # Export options
-        st.header("💾 Export")
-        if st.session_state.spec_session:
-            pickle_path = st.text_input("Pickle path", "./spec.pkl")
-            if st.button("Save Pickle") and pickle_path:
-                write_spec_pickle(
-                    st.session_state.spec_session.current_spec,
-                    pickle_path
-                )
-                st.success(f"Saved to {pickle_path}")
-    
+        #Ensures File Name Stays Stable during one session 
+
+
     # Main content
     col1, col2 = st.columns([1, 1])
     
@@ -110,7 +105,11 @@ def main():
         if st.button("🚀 Generate", type="primary") and nl_input:
             with st.spinner("Generating query spec..."):
                 try:
-
+                    # Generate query id
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    query_id = f"query_{timestamp}"
+                    st.session_state.query_id = query_id
+                    st.session_state.generated_filename = f"./spec_{query_id}.pkl"
                     # Capture the prompt before generation
                     from NL_dspy.pipeline import _format_available_udfs_for_prompt
                     from keyframeql.registry import GLOBAL_UDF_REGISTRY
@@ -127,13 +126,22 @@ def main():
                     st.session_state.last_prompt = prompt
                     
                     session = start_session(
-                        nl_input, 
+                        nl_input,
                         pipeline=st.session_state.pipeline,
                         stats_text=st.session_state.stats_text
                     )
+
                     st.session_state.spec_session = session
-                    st.success("✅ Spec generated!")
+
+                    # Save spec using query id
+                    write_spec_pickle(
+                        session.current_spec,
+                        st.session_state.generated_filename
+                    )
+
+                    st.success(f"✅ Spec generated and saved: {st.session_state.generated_filename}")
                     st.rerun()
+
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
         
@@ -236,13 +244,30 @@ def main():
                 else:
                     st.info("No prompt available yet. Generate a spec first.")
             
-            # Clear session button
+            #Clear Session Logic
             if st.button("🗑️ Clear Session", type="secondary"):
                 st.session_state.spec_session = None
+
+                if "generated_filename" in st.session_state:
+                    del st.session_state.generated_filename
+
+                if "query_id" in st.session_state:
+                    del st.session_state.query_id
+
                 st.rerun()
-        else:
-            st.info("👆 Enter a natural language query and click 'Generate' to begin")
+
+            # Reset generated filename so new query gets new ID
+            if "generated_filename" in st.session_state:
+                del st.session_state.generated_filename
+
+                st.rerun()
+            else:
+                st.info("👆 Enter a natural language query and click 'Generate' to begin")
 
 
 if __name__ == "__main__":
     main()
+
+
+
+

@@ -3,16 +3,26 @@ from datetime import datetime
 import streamlit as st
 import pickle
 from pathlib import Path
+from datetime import datetime
+import streamlit as st
 
 # ============================================================================
 # Feedback Collection
 # ============================================================================
 
 def save_feedback(result_idx: int, feedback_data: dict):
-    """Save feedback to disk."""    
+    """Save feedback to disk."""
+
+    query_id = st.session_state.get("current_query_id")
+
+    if not query_id:
+        st.error("No query_id found. Please reload the spec.")
+        return
+
     feedback_entry = {
-        'timestamp': datetime.now().isoformat(),
-        'result_idx': result_idx,
+        "query_id": query_id,
+        "timestamp": datetime.now().isoformat(),
+        "result_idx": result_idx,
         **feedback_data
     }
     
