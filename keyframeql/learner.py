@@ -97,7 +97,7 @@ class Reranker:
         print(f"✓ Loaded {len(feedback_list)} feedback entries from {labels_file}")
         return feedback_list
     
-    def label_and_learn(self, all_results: List[Tuple],
+    def label_and_learn(self, all_results: List[Tuple], query_id: str,
                        labels_file: str = "ui/label_data/labels.jsonl") -> None:
         """
         Read feedback from JSONL and update the active learner.
@@ -108,6 +108,13 @@ class Reranker:
         """
         # Load all feedback
         feedback_batch = self._load_feedback_batch(labels_file)
+
+        # Filter feedback for this query only
+        feedback_batch = [
+            fb for fb in feedback_batch
+            if fb.get("query_id") == query_id
+        ]
+
 
         if not feedback_batch:
             print("⚠️ No feedback to learn from")

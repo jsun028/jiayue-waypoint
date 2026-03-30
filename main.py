@@ -19,7 +19,7 @@ logger.add("runs.log", rotation="1 week")
 def example_usage(spec_path, data_path, coverage: float | None = None, track_stats: bool = True, 
     out_path: str | None = None, do_viz: bool = False, viz_dir: str | None = None, limit: int | None = None, 
     dedup_threshold: float | None = None, metadata_path: str | None = None, estimation_mode: bool = False,
-    slider_setting: str = "medium", dataset: str = "nuscene"):
+    slider_setting: str = "medium", dataset: str = "nuscene", query_id: str | None = None):
 
     # Sample data
     df = pd.read_csv(data_path)
@@ -29,6 +29,7 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
 
     # Load a sample spec (support both pkl and JSON)
     spec_path_obj = Path(spec_path)
+    query_id = spec_path_obj.stem
     if spec_path_obj.suffix.lower() == ".json":
         # Load from JSON
         with open(spec_path, "r") as f:
@@ -61,11 +62,24 @@ def example_usage(spec_path, data_path, coverage: float | None = None, track_sta
 
     # Optionally write results to JSON
     if out_path:
+        out_path = Path(out_path)
+        if query_id:
+            out_path = out_path.with_name(f"{out_path.stem}_{query_id}{out_path.suffix}")
+
         _write_results_json(results, out_path)
 
     # Optionally generate visualizations per result and keyframe
     if do_viz:
-        out_dir = Path(viz_dir) if viz_dir else Path(out_path).with_suffix("").with_name(Path(out_path).stem + "_viz") if out_path else Path("viz_out")
+        if viz_dir:
+            out_dir = Path(viz_dir)
+        elif out_path:
+            base = Path(out_path).with_suffix("")
+            out_dir = base.with_name(base.name + "_viz")
+        elif query_id:
+            out_dir = Path(f"viz_{query_id}")
+        else:
+            out_dir = Path("viz_out")
+
         out_dir.mkdir(parents=True, exist_ok=True)
         _generate_visualizations(df, results, out_dir, top_k=limit)
     
@@ -76,7 +90,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=str, required=True)
     parser.add_argument("--data", type=str, required=True)
-    parser.add_argument("--dataset", type=str, default='nuscene', required=True, help="Name of dataset (nuscene, virat...)")
+    parser.add_argument("--dataset", type=str, default='nuscene', help="Name of dataset (nuscene, virat...)")
     parser.add_argument("--coverage", type=float, default=1.0, help="Fraction of frames to scan (0-1]")
     parser.add_argument("--track-stats", action="store_true", help="Enable predicate selectivity stats")
     parser.add_argument("--out", type=str, default=None, help="Path to write results JSON")
@@ -88,6 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--estimation-mode", action="store_true", help="Enable estimation mode")
     parser.add_argument("--slider-setting", type=str, default="medium", choices=["low", "medium", "high"],
                        help="Slider setting for DiscreteSlider values: 'low' (most selective), 'medium' (balanced), 'high' (most permissive)")
+    parser.add_argument("--query-id", type=str, default=None)
     args = parser.parse_args()
 
     logger.info(f"Running example usage with spec: {args.spec} and data: {args.data}, coverage={args.coverage}, track_stats={args.track_stats}, out={args.out}, viz={args.viz}, slider_setting={args.slider_setting}")
@@ -104,6 +119,7 @@ if __name__ == "__main__":
         metadata_path=args.metadata_path,
         estimation_mode=args.estimation_mode,
         slider_setting=args.slider_setting,
-        dataset=args.dataset
+        dataset=args.dataset,
+        query_id=args.query_id
     )
 
