@@ -26,12 +26,18 @@ from NL_dspy.pipeline import (
 def init_lm():
     """Initialize language model if not already configured."""
     if 'lm_configured' not in st.session_state:
-         # Default LM model options
         model = "openai/gpt-5"
         temperature = 1
         api_key = os.getenv("OPENAI_API_KEY")
-        
-        configure_lm(model, temperature=temperature, api_key=api_key)
+
+        try:
+            configure_lm(model, temperature=temperature, api_key=api_key)
+        except RuntimeError as e:
+            if "dspy.settings can only be changed" in str(e):
+                pass  # already configured, ignore
+            else:
+                raise e
+
         st.session_state.lm_configured = True
         st.session_state.pipeline = build_pipeline(temperature=temperature)
 
@@ -66,7 +72,8 @@ def main():
 
     
     # Initialize LM
-    init_lm()
+    if "lm_configured" not in st.session_state:
+        init_lm()
     
     # Sidebar configuration
     with st.sidebar:
